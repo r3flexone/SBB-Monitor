@@ -1,0 +1,40 @@
+# ===== ESP-IDF Build =====
+build/
+sdkconfig
+sdkconfig.old
+dependencies.lock
+
+# ===== Binaries =====
+*.bin
+*.elf
+*.map
+*.o
+*.a
+
+# ===== Sensitive =====
+secrets.h
+main/secrets.h
+
+# ===== CMake =====
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+
+# ===== Editor / IDE =====
+.vscode/
+.devcontainer/
+.clangd
+.clangd/
+.ccls-cache/
+
+# ===== OS =====
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# ===== Temp =====
+*.bak
+*.tmp
+*~
+*.swp
