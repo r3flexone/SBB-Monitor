@@ -130,6 +130,7 @@ static void format_time(const char *iso, char out[6])
 
 static bool str_contains_ci(const char *haystack, const char *needle)
 {
+    if (!haystack || !needle) return false;
     size_t hlen = strlen(haystack);
     size_t nlen = strlen(needle);
     if (nlen == 0) return true;
@@ -217,6 +218,7 @@ bool sbb_get_departures(const char *station, SbbDeparture results[DEP_COUNT],
     } Entry;
 
     Entry entries[20];
+    memset(entries, 0, sizeof(entries));
     int n = 0;
 
     for (int i = 0; i < count && n < 20; i++) {
@@ -237,8 +239,12 @@ bool sbb_get_departures(const char *station, SbbDeparture results[DEP_COUNT],
         format_time(departure->valuestring, entries[n].time);
         entries[n].delay = delay_json ? delay_json->valueint : 0;
 
-        if (dest && dest->valuestring) strncpy(entries[n].destination, dest->valuestring, 31);
-        else strcpy(entries[n].destination, "?");
+        if (dest && dest->valuestring) {
+            strncpy(entries[n].destination, dest->valuestring, 31);
+            entries[n].destination[31] = 0;
+        } else {
+            strcpy(entries[n].destination, "?");
+        }
 
         if (platform && cJSON_IsString(platform) && platform->valuestring) {
             strncpy(entries[n].platform, platform->valuestring, 5);
