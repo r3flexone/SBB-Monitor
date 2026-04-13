@@ -18,7 +18,7 @@ static const char *TAG = "main";
 // ==========================================================
 
 // Bahnhof (Name wie auf sbb.ch)
-#define STATION                  "Basel"
+#define STATION                  "Basel SBB"
 
 // Ziel-Filter: nur Züge zu diesen Zielen anzeigen
 //   Einfach auflisten, kein NULL nötig!
