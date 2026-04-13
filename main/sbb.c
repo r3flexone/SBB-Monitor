@@ -165,6 +165,18 @@ bool sbb_get_departures(const char *station, SbbDeparture results[DEP_COUNT],
     http_buf_len = 0;
     memset(http_buf, 0, HTTP_BUF_SIZE);
 
+    // Station URL-encodieren (Leerzeichen → %20)
+    char station_enc[64];
+    int si = 0;
+    for (int i = 0; station[i] && si < (int)sizeof(station_enc) - 3; i++) {
+        if (station[i] == ' ') {
+            station_enc[si++] = '%'; station_enc[si++] = '2'; station_enc[si++] = '0';
+        } else {
+            station_enc[si++] = station[i];
+        }
+    }
+    station_enc[si] = 0;
+
     char url[320];
     snprintf(url, sizeof(url),
         "http://transport.opendata.ch/v1/stationboard?station=%s&limit=15"
@@ -174,7 +186,7 @@ bool sbb_get_departures(const char *station, SbbDeparture results[DEP_COUNT],
         "&fields[]=stationboard/stop/cancelled"
         "&fields[]=stationboard/stop/platform"
         "&fields[]=stationboard/to",
-        station);
+        station_enc);
 
     esp_http_client_config_t config = {
         .url = url,
@@ -184,6 +196,7 @@ bool sbb_get_departures(const char *station, SbbDeparture results[DEP_COUNT],
         .buffer_size_tx = 1024,
     };
     esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (!client) { ESP_LOGE(TAG, "HTTP init fehlgeschlagen"); return false; }
     esp_err_t err = esp_http_client_perform(client);
 
     if (http_buf_len == 0) {
