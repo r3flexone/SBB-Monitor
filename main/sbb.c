@@ -152,7 +152,7 @@ static bool str_contains_ci(const char *haystack, const char *needle)
 // ===== Hauptfunktion =====
 
 bool sbb_get_departures(const char *station, SbbDeparture results[DEP_COUNT],
-                        const char *dest_filters[])
+                        const char *dest_filters[], int filter_count)
 {
     if (!wifi_ready) { ESP_LOGE(TAG, "WiFi nicht bereit!"); return false; }
 
@@ -260,17 +260,19 @@ bool sbb_get_departures(const char *station, SbbDeparture results[DEP_COUNT],
     if (n == 0) return false;
 
     // Ziel-Filter anwenden
-    if (dest_filters && dest_filters[0]) {
+    if (filter_count > 0 && dest_filters) {
         int filtered = 0;
         for (int i = 0; i < n; i++) {
-            for (int f = 0; dest_filters[f]; f++) {
-                if (str_contains_ci(entries[i].destination, dest_filters[f])) {
+            for (int f = 0; f < filter_count; f++) {
+                if (dest_filters[f] &&
+                    str_contains_ci(entries[i].destination, dest_filters[f])) {
                     if (filtered != i) entries[filtered] = entries[i];
                     filtered++;
                     break;
                 }
             }
         }
+        ESP_LOGI(TAG, "Filter: %d/%d Züge passen", filtered, n);
         n = filtered;
         if (n == 0) return false;
     }

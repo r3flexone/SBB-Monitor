@@ -17,8 +17,7 @@ void sbb_wifi_init(const char *ssid, const char *password);
 
 // Nächste 4 Abfahrten ab jetzt holen.
 //   station:      Bahnhof-Name wie auf sbb.ch (z.B. "Gelterkinden")
-//   dest_filters: NULL-terminierte Liste von Ziel-Teilstrings, case-insensitive
-//                 { "Basel", "Olten", NULL } = nur Züge Richtung Basel/Olten
-//                 { NULL }                   = alle Züge (kein Filter)
+//   dest_filters: Array von Ziel-Teilstrings (case-insensitive)
+//   filter_count: Anzahl Einträge (0 = alle Züge, kein Filter)
 bool sbb_get_departures(const char *station, SbbDeparture results[4],
-                        const char *dest_filters[]);
+                        const char *dest_filters[], int filter_count);

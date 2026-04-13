@@ -18,12 +18,13 @@ static const char *TAG = "main";
 // ==========================================================
 
 // Bahnhof (Name wie auf sbb.ch)
-#define STATION                  "Gelterkinden"
+#define STATION                  "Basel"
 
 // Ziel-Filter: nur Züge zu diesen Zielen anzeigen
-//   { NULL }                          = alle Züge (kein Filter)
-//   { "Basel", "Olten", "Brugg", NULL } = nur diese Ziele
-static const char *DEST_FILTERS[] = { NULL };
+//   Einfach auflisten, kein NULL nötig!
+//   Kein Filter (alle Züge): DEST_FILTER_COUNT auf 0 setzen
+static const char *DEST_FILTERS[] = { "Olten" };
+#define DEST_FILTER_COUNT  1
 
 // Aktives Zeitfenster (wann das Display automatisch angeht)
 #define ACTIVE_START_H           6       // Startzeit Stunde
@@ -328,7 +329,7 @@ void app_main(void) {
 
     SbbDeparture deps[4];
     while (xTaskGetTickCount() < active_end) {
-        if (sbb_get_departures(STATION, deps, DEST_FILTERS)) {
+        if (sbb_get_departures(STATION, deps, DEST_FILTERS, DEST_FILTER_COUNT)) {
             if (deps[0].cancelled)      led_set(255, 0, 0);
             else if (deps[0].delay > 5) led_set(128, 0, 255);
             else if (deps[0].delay > 1) led_set(0, 255, 255);
