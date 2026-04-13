@@ -16,4 +16,7 @@ typedef struct {
 void sbb_wifi_init(const char *ssid, const char *password);
 
 // Liefert die nächsten 4 Abfahrten ab jetzt.
-bool sbb_get_departures(SbbDeparture results[4]);
+// dest_filters: NULL-terminierte Liste von Ziel-Teilstrings (case-insensitive).
+//   Beispiel: { "Basel", "Olten", NULL } → nur Züge Richtung Basel/Olten
+//   { NULL } → alle Abfahrten (kein Filter)
+bool sbb_get_departures(SbbDeparture results[4], const char *dest_filters[]);

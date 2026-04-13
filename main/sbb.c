@@ -126,9 +126,31 @@ static void format_time(const char *iso, char out[6])
     }
 }
 
+// ===== Filter-Helper =====
+
+static bool str_contains_ci(const char *haystack, const char *needle)
+{
+    size_t hlen = strlen(haystack);
+    size_t nlen = strlen(needle);
+    if (nlen == 0) return true;
+    if (nlen > hlen) return false;
+    for (size_t i = 0; i <= hlen - nlen; i++) {
+        bool match = true;
+        for (size_t j = 0; j < nlen; j++) {
+            char h = haystack[i + j];
+            char n = needle[j];
+            if (h >= 'a' && h <= 'z') h -= 32;
+            if (n >= 'a' && n <= 'z') n -= 32;
+            if (h != n) { match = false; break; }
+        }
+        if (match) return true;
+    }
+    return false;
+}
+
 // ===== Hauptfunktion =====
 
-bool sbb_get_departures(SbbDeparture results[DEP_COUNT])
+bool sbb_get_departures(SbbDeparture results[DEP_COUNT], const char *dest_filters[])
 {
     if (!wifi_ready) { ESP_LOGE(TAG, "WiFi nicht bereit!"); return false; }
 
@@ -143,7 +165,7 @@ bool sbb_get_departures(SbbDeparture results[DEP_COUNT])
 
     char url[320];
     snprintf(url, sizeof(url),
-        "http://transport.opendata.ch/v1/stationboard?station=%s&limit=10"
+        "http://transport.opendata.ch/v1/stationboard?station=%s&limit=15"
         "&transportations=train"
         "&fields[]=stationboard/stop/departure"
         "&fields[]=stationboard/stop/delay"
@@ -229,6 +251,22 @@ bool sbb_get_departures(SbbDeparture results[DEP_COUNT])
 
     cJSON_Delete(root);
     if (n == 0) return false;
+
+    // Ziel-Filter anwenden
+    if (dest_filters && dest_filters[0]) {
+        int filtered = 0;
+        for (int i = 0; i < n; i++) {
+            for (int f = 0; dest_filters[f]; f++) {
+                if (str_contains_ci(entries[i].destination, dest_filters[f])) {
+                    if (filtered != i) entries[filtered] = entries[i];
+                    filtered++;
+                    break;
+                }
+            }
+        }
+        n = filtered;
+        if (n == 0) return false;
+    }
 
     int target_idx = -1;
     for (int i = 0; i < n; i++) {

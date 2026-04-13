@@ -26,6 +26,11 @@ static const char *TAG = "main";
 #define SLEEP_MAX_MINUTES        120
 #define NTP_TIMEOUT_MS           5000
 
+// Ziel-Filter: nur Abfahrten zu diesen Zielen anzeigen (Teilstring, case-insensitive)
+// { NULL } = alle Abfahrten (kein Filter, wie bisher)
+// Beispiel: { "Basel", "Olten", "Brugg", NULL } = nur diese 3 Ziele
+static const char *DEST_FILTERS[] = { NULL };
+
 // ===== HARDWARE =====
 #define LED_GPIO      48
 #define I2C_SCL_GPIO  5
@@ -312,7 +317,7 @@ void app_main(void) {
 
     SbbDeparture deps[4];
     while (xTaskGetTickCount() < active_end) {
-        if (sbb_get_departures(deps)) {
+        if (sbb_get_departures(deps, DEST_FILTERS)) {
             if (deps[0].cancelled)      led_set(255, 0, 0);
             else if (deps[0].delay > 5) led_set(128, 0, 255);
             else if (deps[0].delay > 1) led_set(0, 255, 255);
