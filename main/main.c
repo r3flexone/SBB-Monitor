@@ -13,31 +13,42 @@
 
 static const char *TAG = "main";
 
-// ===== KONFIGURATION =====
-#define BUTTON_GPIO              0
-#define ACTIVE_START_H           6
-#define ACTIVE_START_M           45
-#define ACTIVE_END_H             7
-#define ACTIVE_END_M             0
-#define BUTTON_ACTIVE_MS         (10 * 60 * 1000)
-#define SBB_REFRESH_MS           (60 * 1000)
-#define DEEP_SLEEP_FALLBACK_S    (5 * 60)
-#define DEEP_SLEEP_AFTER_S       (5 * 60)
-#define SLEEP_MAX_MINUTES        120
-#define NTP_TIMEOUT_MS           5000
+// ==========================================================
+//  EINSTELLUNGEN – Hier alles anpassen
+// ==========================================================
 
-// Ziel-Filter: nur Abfahrten zu diesen Zielen anzeigen (Teilstring, case-insensitive)
-// { NULL } = alle Abfahrten (kein Filter, wie bisher)
-// Beispiel: { "Basel", "Olten", "Brugg", NULL } = nur diese 3 Ziele
+// Bahnhof (Name wie auf sbb.ch)
+#define STATION                  "Gelterkinden"
+
+// Ziel-Filter: nur Züge zu diesen Zielen anzeigen
+//   { NULL }                          = alle Züge (kein Filter)
+//   { "Basel", "Olten", "Brugg", NULL } = nur diese Ziele
 static const char *DEST_FILTERS[] = { NULL };
 
-// ===== HARDWARE =====
-#define LED_GPIO      48
-#define I2C_SCL_GPIO  5
-#define I2C_SDA_GPIO  4
-#define OLED_ADDR     0x3C
-#define OLED_WIDTH    128
-#define OLED_HEIGHT   64
+// Aktives Zeitfenster (wann das Display automatisch angeht)
+#define ACTIVE_START_H           6       // Startzeit Stunde
+#define ACTIVE_START_M           45      // Startzeit Minute
+#define ACTIVE_END_H             7       // Endzeit Stunde
+#define ACTIVE_END_M             0       // Endzeit Minute
+
+// Nach Knopfdruck: wie viele Minuten bleibt Display an
+#define BUTTON_ACTIVE_MIN        10
+
+// Wie oft Abfahrten neu laden (Sekunden)
+#define REFRESH_SEC              60
+
+// ==========================================================
+//  HARDWARE – Nur ändern bei anderer Verkabelung
+// ==========================================================
+
+#define BUTTON_GPIO              0
+#define LED_GPIO                 48
+#define I2C_SCL_GPIO             5
+#define I2C_SDA_GPIO             4
+#define OLED_ADDR                0x3C
+#define OLED_WIDTH               128
+#define OLED_HEIGHT              64
+#define NTP_TIMEOUT_MS           5000
 
 // ===== NEOPIXEL =====
 static led_strip_handle_t led_strip;
@@ -168,7 +179,7 @@ static void draw_header(const char *title) {
 }
 
 static void display_departures(SbbDeparture deps[4]) {
-    draw_header("GELTERKINDEN");
+    draw_header(STATION);
     int yp[] = {14, 27, 40, 53};
     for (int i = 0; i < 4; i++) {
         if (!deps[i].valid) continue;
@@ -278,11 +289,11 @@ void app_main(void) {
         if (time_valid) {
             int d = start_min - cur_min;
             if (d <= 0) d += 24*60;
-            if (d > SLEEP_MAX_MINUTES) d = SLEEP_MAX_MINUTES;
+            if (d > 120) d = 120;  // max 2h schlafen, dann neu prüfen
             us = (uint64_t)d * 60ULL * 1000000ULL;
             ESP_LOGI(TAG, "Schlafe %d Min", d);
         } else {
-            us = (uint64_t)DEEP_SLEEP_FALLBACK_S * 1000000ULL;
+            us = 5ULL * 60 * 1000000ULL;  // 5 Min Fallback
         }
         go_to_sleep(us);
         return;
@@ -293,7 +304,7 @@ void app_main(void) {
 
     if (oled_ok) {
         oled_cmd(0xAF);
-        draw_header("GELTERKINDEN");
+        draw_header(STATION);
         draw_text(0, 20, "LADE ZUEGE...");
         oled_flush();
     }
@@ -308,7 +319,7 @@ void app_main(void) {
 
     TickType_t active_end;
     if (woken_by_button) {
-        active_end = xTaskGetTickCount() + pdMS_TO_TICKS(BUTTON_ACTIVE_MS);
+        active_end = xTaskGetTickCount() + pdMS_TO_TICKS(((uint32_t)BUTTON_ACTIVE_MIN * 60 * 1000));
     } else {
         int rem = end_min - cur_min;
         if (rem < 1) rem = 1;
@@ -317,7 +328,7 @@ void app_main(void) {
 
     SbbDeparture deps[4];
     while (xTaskGetTickCount() < active_end) {
-        if (sbb_get_departures(deps, DEST_FILTERS)) {
+        if (sbb_get_departures(STATION, deps, DEST_FILTERS)) {
             if (deps[0].cancelled)      led_set(255, 0, 0);
             else if (deps[0].delay > 5) led_set(128, 0, 255);
             else if (deps[0].delay > 1) led_set(0, 255, 255);
@@ -326,11 +337,11 @@ void app_main(void) {
         } else {
             led_set(255, 0, 0);
         }
-        TickType_t wait_end = xTaskGetTickCount() + pdMS_TO_TICKS(SBB_REFRESH_MS);
+        TickType_t wait_end = xTaskGetTickCount() + pdMS_TO_TICKS((REFRESH_SEC * 1000));
         while (xTaskGetTickCount() < wait_end && xTaskGetTickCount() < active_end) {
             vTaskDelay(pdMS_TO_TICKS(500));
         }
     }
 
-    go_to_sleep((uint64_t)DEEP_SLEEP_AFTER_S * 1000000ULL);
+    go_to_sleep(5ULL * 60 * 1000000ULL);  // 5 Min nach Zeitfenster-Ende
 }

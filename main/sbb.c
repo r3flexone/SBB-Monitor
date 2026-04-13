@@ -150,7 +150,8 @@ static bool str_contains_ci(const char *haystack, const char *needle)
 
 // ===== Hauptfunktion =====
 
-bool sbb_get_departures(SbbDeparture results[DEP_COUNT], const char *dest_filters[])
+bool sbb_get_departures(const char *station, SbbDeparture results[DEP_COUNT],
+                        const char *dest_filters[])
 {
     if (!wifi_ready) { ESP_LOGE(TAG, "WiFi nicht bereit!"); return false; }
 
@@ -172,7 +173,7 @@ bool sbb_get_departures(SbbDeparture results[DEP_COUNT], const char *dest_filter
         "&fields[]=stationboard/stop/cancelled"
         "&fields[]=stationboard/stop/platform"
         "&fields[]=stationboard/to",
-        SBB_STATION);
+        station);
 
     esp_http_client_config_t config = {
         .url = url,
