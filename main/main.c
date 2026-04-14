@@ -18,12 +18,12 @@ static const char *TAG = "main";
 // ==========================================================
 
 // Bahnhof (Name wie auf sbb.ch)
-#define STATION                  "Basel SBB"
+#define STATION                  "Gelterkinden"
 
 // Ziel-Filter: nur Züge zu diesen Zielen anzeigen
 //   Einfach auflisten, kein NULL nötig!
 //   Kein Filter (alle Züge): DEST_FILTER_COUNT auf 0 setzen
-static const char *DEST_FILTERS[] = { "Olten" };
+static const char *DEST_FILTERS[] = { "" };
 #define DEST_FILTER_COUNT  1
 
 // Aktives Zeitfenster (wann das Display automatisch angeht)
