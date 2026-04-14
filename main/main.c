@@ -56,6 +56,9 @@ static const char *DEST_FILTERS[] = { "" };
 #define DELAY_SMALL_MIN          1       // > 1 Min  -> cyan
 #define DELAY_BIG_MIN            5       // > 5 Min  -> lila
 
+// Error-LED blinken (in ms pro Phase; 0 = dauerhaft an)
+#define LED_ERROR_BLINK_MS       500
+
 // ==========================================================
 //  HARDWARE – Nur ändern bei anderer Verkabelung
 // ==========================================================
@@ -347,7 +350,8 @@ void app_main(void) {
 
     SbbDeparture deps[4];
     while (xTaskGetTickCount() < active_end) {
-        if (sbb_get_departures(STATION, deps, DEST_FILTERS, DEST_FILTER_COUNT)) {
+        bool error = !sbb_get_departures(STATION, deps, DEST_FILTERS, DEST_FILTER_COUNT);
+        if (!error) {
             if (deps[0].cancelled)                     led_set(LED_CANCELLED);
             else if (deps[0].delay > DELAY_BIG_MIN)    led_set(LED_DELAY_BIG);
             else if (deps[0].delay > DELAY_SMALL_MIN)  led_set(LED_DELAY_SMALL);
@@ -357,8 +361,16 @@ void app_main(void) {
             led_set(LED_ERROR);
         }
         TickType_t wait_end = xTaskGetTickCount() + pdMS_TO_TICKS((REFRESH_SEC * 1000));
+        bool blink_on = true;
+        TickType_t next_toggle = xTaskGetTickCount() + pdMS_TO_TICKS(LED_ERROR_BLINK_MS);
         while (xTaskGetTickCount() < wait_end && xTaskGetTickCount() < active_end) {
-            vTaskDelay(pdMS_TO_TICKS(500));
+            if (error && LED_ERROR_BLINK_MS > 0 && xTaskGetTickCount() >= next_toggle) {
+                blink_on = !blink_on;
+                if (blink_on) led_set(LED_ERROR);
+                else          led_set(0, 0, 0);
+                next_toggle = xTaskGetTickCount() + pdMS_TO_TICKS(LED_ERROR_BLINK_MS);
+            }
+            vTaskDelay(pdMS_TO_TICKS(100));
         }
     }
 
