@@ -24,7 +24,7 @@ static const char *TAG = "main";
 //   Einfach auflisten, kein NULL nötig!
 //   Kein Filter (alle Züge): DEST_FILTER_COUNT auf 0 setzen
 static const char *DEST_FILTERS[] = { "" };
-#define DEST_FILTER_COUNT  1
+#define DEST_FILTER_COUNT  0
 
 // Aktives Zeitfenster (wann das Display automatisch angeht)
 #define ACTIVE_START_H           6       // Startzeit Stunde
