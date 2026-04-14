@@ -352,10 +352,22 @@ void app_main(void) {
     while (xTaskGetTickCount() < active_end) {
         bool error = !sbb_get_departures(STATION, deps, DEST_FILTERS, DEST_FILTER_COUNT);
         if (!error) {
-            if (deps[0].cancelled)                     led_set(LED_CANCELLED);
-            else if (deps[0].delay > DELAY_BIG_MIN)    led_set(LED_DELAY_BIG);
-            else if (deps[0].delay > DELAY_SMALL_MIN)  led_set(LED_DELAY_SMALL);
-            else                                       led_set(LED_OK);
+            // Schlimmster Status aller 4 Züge: Ausfall > grosse Verspätung > kleine Verspätung > OK
+            int worst = 0;  // 0=OK, 1=small delay, 2=big delay, 3=cancelled
+            for (int i = 0; i < 4; i++) {
+                if (!deps[i].valid) continue;
+                int s = 0;
+                if (deps[i].cancelled)                    s = 3;
+                else if (deps[i].delay > DELAY_BIG_MIN)   s = 2;
+                else if (deps[i].delay > DELAY_SMALL_MIN) s = 1;
+                if (s > worst) worst = s;
+            }
+            switch (worst) {
+                case 3:  led_set(LED_CANCELLED);   break;
+                case 2:  led_set(LED_DELAY_BIG);   break;
+                case 1:  led_set(LED_DELAY_SMALL); break;
+                default: led_set(LED_OK);          break;
+            }
             display_departures(deps);
         } else {
             led_set(LED_ERROR);
