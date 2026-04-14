@@ -463,7 +463,7 @@ void app_main(void) {
         // --- Adaptiver Refresh-Intervall ---
         int refresh_sec;
         if (success) {
-            int min_to_next = 9999;
+            int min_to_next = -1;  // -1 = noch nichts gefunden
             time_t n; struct tm nt; time(&n); localtime_r(&n, &nt);
             int cur_m = nt.tm_hour * 60 + nt.tm_min;
             for (int i = 0; i < 4; i++) {
@@ -471,15 +471,28 @@ void app_main(void) {
                 int h, m;
                 if (sscanf(deps[i].time, "%d:%d", &h, &m) == 2) {
                     int diff = (h * 60 + m + deps[i].delay) - cur_m;
-                    if (diff >= 0 && diff < min_to_next) min_to_next = diff;
+                    if (diff >= 0 && (min_to_next < 0 || diff < min_to_next)) {
+                        min_to_next = diff;
+                    }
                 }
             }
-            if (min_to_next <= REFRESH_NEAR_MIN)     refresh_sec = REFRESH_NEAR_SEC;
-            else if (min_to_next <= REFRESH_MID_MIN) refresh_sec = REFRESH_MID_SEC;
-            else if (min_to_next <= REFRESH_FAR_MIN) refresh_sec = REFRESH_FAR_SEC;
-            else                                     refresh_sec = REFRESH_VERYFAR_SEC;
-            ESP_LOGI(TAG, "Nächster Zug in %d Min -> Refresh %d s",
-                     min_to_next, refresh_sec);
+            if (min_to_next < 0) {
+                // Keine zukünftigen Züge in der Liste – Debug-Log + langsamer Refresh
+                ESP_LOGW(TAG, "Kein Zug in Zukunft! cur_m=%d", cur_m);
+                for (int i = 0; i < 4; i++) {
+                    ESP_LOGW(TAG, "  deps[%d] valid=%d canc=%d time='%s' delay=%d",
+                             i, deps[i].valid, deps[i].cancelled,
+                             deps[i].time, deps[i].delay);
+                }
+                refresh_sec = REFRESH_FAR_SEC;
+            } else if (min_to_next <= REFRESH_NEAR_MIN) refresh_sec = REFRESH_NEAR_SEC;
+            else if (min_to_next <= REFRESH_MID_MIN)    refresh_sec = REFRESH_MID_SEC;
+            else if (min_to_next <= REFRESH_FAR_MIN)    refresh_sec = REFRESH_FAR_SEC;
+            else                                        refresh_sec = REFRESH_VERYFAR_SEC;
+            if (min_to_next >= 0) {
+                ESP_LOGI(TAG, "Nächster Zug in %d Min -> Refresh %d s",
+                         min_to_next, refresh_sec);
+            }
         } else {
             refresh_sec = REFRESH_MID_SEC;  // bei Fehler nicht zu oft hämmern
         }
