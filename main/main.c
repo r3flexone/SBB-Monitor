@@ -49,11 +49,13 @@ static const char *DEST_FILTERS[] = { "" };
 #define STALE_MAX_MIN            10
 
 // Adaptive Refresh-Rate (abhängig von Minuten bis zum nächsten Zug)
-#define REFRESH_NEAR_SEC         20      // nächster Zug < NEAR_MIN Min weg
-#define REFRESH_MID_SEC          60      // nächster Zug < MID_MIN Min weg
-#define REFRESH_FAR_SEC          120     // weiter weg
+#define REFRESH_NEAR_SEC         30      // bis NEAR_MIN Min:  alle 30 s
+#define REFRESH_MID_SEC          120     // bis MID_MIN Min:   alle 2 Min
+#define REFRESH_FAR_SEC          300     // bis FAR_MIN Min:   alle 5 Min
+#define REFRESH_VERYFAR_SEC      600     // darüber:            alle 10 Min
 #define REFRESH_NEAR_MIN         5
-#define REFRESH_MID_MIN          15
+#define REFRESH_MID_MIN          10
+#define REFRESH_FAR_MIN          30
 
 // ==========================================================
 //  LED-FARBEN (R, G, B) – 0..255, werden auf 1/16 gedimmt
@@ -455,9 +457,10 @@ void app_main(void) {
                     if (diff >= 0 && diff < min_to_next) min_to_next = diff;
                 }
             }
-            if (min_to_next < REFRESH_NEAR_MIN)     refresh_sec = REFRESH_NEAR_SEC;
-            else if (min_to_next < REFRESH_MID_MIN) refresh_sec = REFRESH_MID_SEC;
-            else                                    refresh_sec = REFRESH_FAR_SEC;
+            if (min_to_next <= REFRESH_NEAR_MIN)     refresh_sec = REFRESH_NEAR_SEC;
+            else if (min_to_next <= REFRESH_MID_MIN) refresh_sec = REFRESH_MID_SEC;
+            else if (min_to_next <= REFRESH_FAR_MIN) refresh_sec = REFRESH_FAR_SEC;
+            else                                     refresh_sec = REFRESH_VERYFAR_SEC;
             ESP_LOGI(TAG, "Nächster Zug in %d Min -> Refresh %d s",
                      min_to_next, refresh_sec);
         } else {
