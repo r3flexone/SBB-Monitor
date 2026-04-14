@@ -177,6 +177,11 @@ bool sbb_get_departures(const char *station, SbbDeparture results[DEP_COUNT],
     }
     station_enc[si] = 0;
 
+    // passList nur laden wenn Filter aktiv ist (spart Daten)
+    const char *pass_field = (filter_count > 0)
+        ? "&fields[]=stationboard/passList/station/name"
+        : "";
+
     char url[320];
     snprintf(url, sizeof(url),
         "http://transport.opendata.ch/v1/stationboard?station=%s&limit=15"
@@ -185,9 +190,8 @@ bool sbb_get_departures(const char *station, SbbDeparture results[DEP_COUNT],
         "&fields[]=stationboard/stop/delay"
         "&fields[]=stationboard/stop/cancelled"
         "&fields[]=stationboard/stop/platform"
-        "&fields[]=stationboard/to"
-        "&fields[]=stationboard/passList/station/name",
-        station_enc);
+        "&fields[]=stationboard/to%s",
+        station_enc, pass_field);
 
     esp_http_client_config_t config = {
         .url = url,
