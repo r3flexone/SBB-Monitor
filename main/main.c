@@ -35,8 +35,25 @@ static const char *DEST_FILTERS[] = { "" };
 // Nach Knopfdruck: wie viele Minuten bleibt Display an
 #define BUTTON_ACTIVE_MIN        2
 
-// Wie oft Abfahrten neu laden (Sekunden)
-#define REFRESH_SEC              60
+// Nur Werktage (Mo–Fr) aktiv? 1 = ja, 0 = auch Sa/So
+#define WEEKDAYS_ONLY            1
+
+// OLED Burn-in-Schutz: alle X Min Display invertieren (0 = aus)
+#define OLED_INVERT_MIN          5
+
+// Wenn API fehlschlägt: mehrere Versuche bevor "Fehler" angezeigt wird
+#define API_RETRY_COUNT          3       // Anzahl Versuche pro Refresh
+#define API_RETRY_DELAY_MS       5000    // Wartezeit zwischen Versuchen
+
+// Wie lange dürfen alte (gecachte) Daten nach API-Ausfall noch gezeigt werden
+#define STALE_MAX_MIN            10
+
+// Adaptive Refresh-Rate (abhängig von Minuten bis zum nächsten Zug)
+#define REFRESH_NEAR_SEC         20      // nächster Zug < NEAR_MIN Min weg
+#define REFRESH_MID_SEC          60      // nächster Zug < MID_MIN Min weg
+#define REFRESH_FAR_SEC          120     // weiter weg
+#define REFRESH_NEAR_MIN         5
+#define REFRESH_MID_MIN          15
 
 // ==========================================================
 //  LED-FARBEN (R, G, B) – 0..255, werden auf 1/16 gedimmt
@@ -194,14 +211,26 @@ static void draw_text(int x, int y, const char *text) {
         s += consumed;
     }
 }
-static void draw_header(const char *title) {
+static void draw_header(const char *title, bool stale) {
     memset(framebuffer, 0, sizeof(framebuffer));
-    draw_text(0, 0, title);
+    // Titel links (auf max 15 Zeichen gekürzt damit die Uhr rechts Platz hat)
+    char hdr[20];
+    if (stale) snprintf(hdr, sizeof(hdr), "!%.14s", title);
+    else       snprintf(hdr, sizeof(hdr), "%.15s", title);
+    draw_text(0, 0, hdr);
+    // Uhrzeit oben rechts (5 Zeichen x 6 Pixel = 30 Pixel breit)
+    time_t now; struct tm ti;
+    time(&now); localtime_r(&now, &ti);
+    if (ti.tm_year >= 100) {
+        char clk[6];
+        snprintf(clk, sizeof(clk), "%02d:%02d", ti.tm_hour, ti.tm_min);
+        draw_text(128 - 5*6, 0, clk);
+    }
     for (int x = 0; x < 128; x++) draw_pixel(x, 9, true);
 }
 
-static void display_departures(SbbDeparture deps[4]) {
-    draw_header(STATION);
+static void display_departures(SbbDeparture deps[4], bool stale) {
+    draw_header(STATION, stale);
     int yp[] = {14, 27, 40, 53};
     for (int i = 0; i < 4; i++) {
         if (!deps[i].valid) continue;
@@ -291,7 +320,7 @@ void app_main(void) {
     if (!time_valid) {
         if (oled_ok) {
             oled_cmd(0xAF);
-            draw_header("KALTSTART");
+            draw_header("KALTSTART", false);
             draw_text(0, 20, "WIFI+NTP...");
             oled_flush();
         }
@@ -304,7 +333,10 @@ void app_main(void) {
     int cur_min = ti.tm_hour*60 + ti.tm_min;
     int start_min = ACTIVE_START_H*60 + ACTIVE_START_M;
     int end_min = ACTIVE_END_H*60 + ACTIVE_END_M;
-    bool in_window = time_valid && (cur_min >= start_min && cur_min < end_min);
+    bool is_weekend = (ti.tm_wday == 0 || ti.tm_wday == 6);  // So=0, Sa=6
+    bool weekend_skip = WEEKDAYS_ONLY && is_weekend;
+    bool in_window = time_valid && !weekend_skip &&
+                     (cur_min >= start_min && cur_min < end_min);
 
     if (!in_window && !woken_by_button) {
         uint64_t us;
@@ -313,7 +345,8 @@ void app_main(void) {
             if (d <= 0) d += 24*60;
             if (d > 120) d = 120;  // max 2h schlafen, dann neu prüfen
             us = (uint64_t)d * 60ULL * 1000000ULL;
-            ESP_LOGI(TAG, "Schlafe %d Min", d);
+            if (weekend_skip) ESP_LOGI(TAG, "Wochenende, schlafe %d Min", d);
+            else              ESP_LOGI(TAG, "Schlafe %d Min", d);
         } else {
             us = 5ULL * 60 * 1000000ULL;  // 5 Min Fallback
         }
@@ -326,7 +359,7 @@ void app_main(void) {
 
     if (oled_ok) {
         oled_cmd(0xAF);
-        draw_header(STATION);
+        draw_header(STATION, false);
         draw_text(0, 20, "LADE ZUEGE...");
         oled_flush();
     }
@@ -349,11 +382,42 @@ void app_main(void) {
     }
 
     SbbDeparture deps[4];
+    SbbDeparture last_deps[4];
+    memset(last_deps, 0, sizeof(last_deps));
+    bool has_cached = false;
+    time_t cached_time = 0;
+
+    bool inverted = false;
+    TickType_t next_invert = xTaskGetTickCount() +
+        pdMS_TO_TICKS((uint32_t)OLED_INVERT_MIN * 60 * 1000);
+
     while (xTaskGetTickCount() < active_end) {
-        bool error = !sbb_get_departures(STATION, deps, DEST_FILTERS, DEST_FILTER_COUNT);
-        if (!error) {
-            // Schlimmster Status aller 4 Züge: Ausfall > grosse Verspätung > kleine Verspätung > OK
-            int worst = 0;  // 0=OK, 1=small delay, 2=big delay, 3=cancelled
+        // --- API-Abfrage mit Retries ---
+        bool success = false;
+        for (int attempt = 0; attempt < API_RETRY_COUNT && !success; attempt++) {
+            if (attempt > 0) {
+                ESP_LOGW(TAG, "API Retry %d/%d", attempt + 1, API_RETRY_COUNT);
+                vTaskDelay(pdMS_TO_TICKS(API_RETRY_DELAY_MS));
+            }
+            success = sbb_get_departures(STATION, deps, DEST_FILTERS, DEST_FILTER_COUNT);
+        }
+
+        // --- Cache aktualisieren bzw. als Stale markieren ---
+        bool show_stale = false;
+        if (success) {
+            memcpy(last_deps, deps, sizeof(deps));
+            has_cached = true;
+            time(&cached_time);
+        } else {
+            time_t n; time(&n);
+            if (has_cached && (n - cached_time) < STALE_MAX_MIN * 60) {
+                show_stale = true;
+            }
+        }
+
+        // --- LED setzen (schlimmster Status aller 4 Züge) ---
+        if (success) {
+            int worst = 0;  // 0=OK, 1=small, 2=big, 3=cancelled
             for (int i = 0; i < 4; i++) {
                 if (!deps[i].valid) continue;
                 int s = 0;
@@ -368,23 +432,68 @@ void app_main(void) {
                 case 1:  led_set(LED_DELAY_SMALL); break;
                 default: led_set(LED_OK);          break;
             }
-            display_departures(deps);
         } else {
             led_set(LED_ERROR);
         }
-        TickType_t wait_end = xTaskGetTickCount() + pdMS_TO_TICKS((REFRESH_SEC * 1000));
+
+        // --- Display ---
+        if (success || show_stale) {
+            display_departures(success ? deps : last_deps, show_stale);
+        }
+
+        // --- Adaptiver Refresh-Intervall ---
+        int refresh_sec;
+        if (success) {
+            int min_to_next = 9999;
+            time_t n; struct tm nt; time(&n); localtime_r(&n, &nt);
+            int cur_m = nt.tm_hour * 60 + nt.tm_min;
+            for (int i = 0; i < 4; i++) {
+                if (!deps[i].valid || deps[i].cancelled) continue;
+                int h, m;
+                if (sscanf(deps[i].time, "%d:%d", &h, &m) == 2) {
+                    int diff = (h * 60 + m + deps[i].delay) - cur_m;
+                    if (diff >= 0 && diff < min_to_next) min_to_next = diff;
+                }
+            }
+            if (min_to_next < REFRESH_NEAR_MIN)     refresh_sec = REFRESH_NEAR_SEC;
+            else if (min_to_next < REFRESH_MID_MIN) refresh_sec = REFRESH_MID_SEC;
+            else                                    refresh_sec = REFRESH_FAR_SEC;
+            ESP_LOGI(TAG, "Nächster Zug in %d Min -> Refresh %d s",
+                     min_to_next, refresh_sec);
+        } else {
+            refresh_sec = REFRESH_MID_SEC;  // bei Fehler nicht zu oft hämmern
+        }
+
+        // --- Wartephase mit LED-Blink, OLED-Invert und Uhr-Update ---
+        TickType_t wait_end = xTaskGetTickCount() +
+            pdMS_TO_TICKS((uint32_t)refresh_sec * 1000);
         bool blink_on = true;
         TickType_t next_toggle = xTaskGetTickCount() + pdMS_TO_TICKS(LED_ERROR_BLINK_MS);
+        TickType_t next_clock = xTaskGetTickCount() + pdMS_TO_TICKS(30 * 1000);
         while (xTaskGetTickCount() < wait_end && xTaskGetTickCount() < active_end) {
-            if (error && LED_ERROR_BLINK_MS > 0 && xTaskGetTickCount() >= next_toggle) {
+            TickType_t t = xTaskGetTickCount();
+            // LED blinken bei Fehler
+            if (!success && LED_ERROR_BLINK_MS > 0 && t >= next_toggle) {
                 blink_on = !blink_on;
                 if (blink_on) led_set(LED_ERROR);
                 else          led_set(0, 0, 0);
-                next_toggle = xTaskGetTickCount() + pdMS_TO_TICKS(LED_ERROR_BLINK_MS);
+                next_toggle = t + pdMS_TO_TICKS(LED_ERROR_BLINK_MS);
+            }
+            // OLED Burn-in-Schutz: periodisch invertieren
+            if (OLED_INVERT_MIN > 0 && t >= next_invert) {
+                inverted = !inverted;
+                oled_cmd(inverted ? 0xA7 : 0xA6);
+                next_invert = t + pdMS_TO_TICKS((uint32_t)OLED_INVERT_MIN * 60 * 1000);
+            }
+            // Uhr auf dem Display alle 30 s aktualisieren
+            if (has_cached && t >= next_clock) {
+                display_departures(last_deps, show_stale);
+                next_clock = t + pdMS_TO_TICKS(30 * 1000);
             }
             vTaskDelay(pdMS_TO_TICKS(100));
         }
     }
 
+    if (inverted) oled_cmd(0xA6);  // vor Sleep wieder normal
     go_to_sleep(5ULL * 60 * 1000000ULL);  // 5 Min nach Zeitfenster-Ende
 }
