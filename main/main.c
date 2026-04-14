@@ -190,15 +190,30 @@ static int draw_char_utf8(int x, int y, const unsigned char *s, int *consumed) {
     unsigned char c = s[0];
     if (c == 0xC3 && s[1] != 0) {
         *consumed = 2;
-        switch (s[1]) {
-            case 0x84: draw_glyph(x,y,font_umlaut[0]); return x+6;
-            case 0x96: draw_glyph(x,y,font_umlaut[1]); return x+6;
-            case 0x9C: draw_glyph(x,y,font_umlaut[2]); return x+6;
-            case 0xA4: draw_glyph(x,y,font_umlaut[3]); return x+6;
-            case 0xB6: draw_glyph(x,y,font_umlaut[4]); return x+6;
-            case 0xBC: draw_glyph(x,y,font_umlaut[5]); return x+6;
+        unsigned char b = s[1];
+        switch (b) {
+            case 0x84: draw_glyph(x,y,font_umlaut[0]); return x+6;  // Ä
+            case 0x96: draw_glyph(x,y,font_umlaut[1]); return x+6;  // Ö
+            case 0x9C: draw_glyph(x,y,font_umlaut[2]); return x+6;  // Ü
+            case 0xA4: draw_glyph(x,y,font_umlaut[3]); return x+6;  // ä
+            case 0xB6: draw_glyph(x,y,font_umlaut[4]); return x+6;  // ö
+            case 0xBC: draw_glyph(x,y,font_umlaut[5]); return x+6;  // ü
         }
-        *consumed = 1;
+        // Fallback: akzentuierte Zeichen ohne Akzent rendern (é→E, à→A, ô→O, …)
+        char base = 0;
+        if      ((b >= 0x80 && b <= 0x85) || (b >= 0xA0 && b <= 0xA5)) base = 'A';
+        else if (b == 0x87 || b == 0xA7)                               base = 'C';
+        else if ((b >= 0x88 && b <= 0x8B) || (b >= 0xA8 && b <= 0xAB)) base = 'E';
+        else if ((b >= 0x8C && b <= 0x8F) || (b >= 0xAC && b <= 0xAF)) base = 'I';
+        else if (b == 0x91 || b == 0xB1)                               base = 'N';
+        else if ((b >= 0x92 && b <= 0x98) || (b >= 0xB2 && b <= 0xB8)) base = 'O';
+        else if ((b >= 0x99 && b <= 0x9B) || (b >= 0xB9 && b <= 0xBB)) base = 'U';
+        else if (b == 0x9D || b == 0xBD)                               base = 'Y';
+        if (base) {
+            draw_glyph(x, y, font5x7[base - 0x20]);
+            return x + 6;
+        }
+        *consumed = 1;  // unbekanntes UTF-8 — als Einzel-Byte weiterbehandeln
     }
     char ch = (char)c;
     if (ch >= 'a' && ch <= 'z') ch -= 32;
