@@ -182,7 +182,7 @@ bool sbb_get_departures(const char *station, SbbDeparture results[DEP_COUNT],
         ? "&fields[]=stationboard/passList/station/name"
         : "";
 
-    char url[320];
+    char url[512];
     snprintf(url, sizeof(url),
         "http://transport.opendata.ch/v1/stationboard?station=%s&limit=15"
         "&transportations=train"
