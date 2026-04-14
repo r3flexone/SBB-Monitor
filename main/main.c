@@ -383,8 +383,10 @@ void app_main(void) {
         active_end = xTaskGetTickCount() + pdMS_TO_TICKS((uint32_t)rem * 60 * 1000);
     }
 
-    SbbDeparture deps[4];
-    SbbDeparture last_deps[4];
+    // static: aus dem Stack raus (verhindert Stack-Overflow im Main-Task)
+    static SbbDeparture deps[4];
+    static SbbDeparture last_deps[4];
+    memset(deps, 0, sizeof(deps));
     memset(last_deps, 0, sizeof(last_deps));
     bool has_cached = false;
     time_t cached_time = 0;
