@@ -17,7 +17,7 @@ static const char *TAG = "sbb";
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT      BIT1
 #define MAX_RETRY          5
-#define HTTP_BUF_SIZE      16384
+#define HTTP_BUF_SIZE      32768
 #define DEP_COUNT          4
 
 static EventGroupHandle_t wifi_event_group;
@@ -185,7 +185,8 @@ bool sbb_get_departures(const char *station, SbbDeparture results[DEP_COUNT],
         "&fields[]=stationboard/stop/delay"
         "&fields[]=stationboard/stop/cancelled"
         "&fields[]=stationboard/stop/platform"
-        "&fields[]=stationboard/to",
+        "&fields[]=stationboard/to"
+        "&fields[]=stationboard/passList/station/name",
         station_enc);
 
     esp_http_client_config_t config = {
@@ -234,6 +235,7 @@ bool sbb_get_departures(const char *station, SbbDeparture results[DEP_COUNT],
     memset(entries, 0, sizeof(entries));
     int n = 0;
 
+    int total_trains = 0;
     for (int i = 0; i < count && n < 20; i++) {
         cJSON *item = cJSON_GetArrayItem(stationboard, i);
         if (!item) continue;
@@ -241,11 +243,44 @@ bool sbb_get_departures(const char *station, SbbDeparture results[DEP_COUNT],
         if (!stop) continue;
         cJSON *departure = cJSON_GetObjectItem(stop, "departure");
         if (!departure || !departure->valuestring) continue;
+        total_trains++;
 
         cJSON *dest = cJSON_GetObjectItem(item, "to");
         cJSON *delay_json = cJSON_GetObjectItem(stop, "delay");
         cJSON *cancelled = cJSON_GetObjectItem(stop, "cancelled");
         cJSON *platform = cJSON_GetObjectItem(stop, "platform");
+
+        // Filter prüfen: Endziel ODER Zwischenstation muss matchen
+        bool matches = (filter_count == 0);
+        if (!matches && dest && dest->valuestring) {
+            for (int f = 0; f < filter_count; f++) {
+                if (dest_filters[f] &&
+                    str_contains_ci(dest->valuestring, dest_filters[f])) {
+                    matches = true; break;
+                }
+            }
+        }
+        if (!matches) {
+            cJSON *pass_list = cJSON_GetObjectItem(item, "passList");
+            if (pass_list) {
+                int pl = cJSON_GetArraySize(pass_list);
+                for (int p = 0; p < pl && !matches; p++) {
+                    cJSON *pi = cJSON_GetArrayItem(pass_list, p);
+                    if (!pi) continue;
+                    cJSON *ps = cJSON_GetObjectItem(pi, "station");
+                    if (!ps) continue;
+                    cJSON *pn = cJSON_GetObjectItem(ps, "name");
+                    if (!pn || !pn->valuestring) continue;
+                    for (int f = 0; f < filter_count; f++) {
+                        if (dest_filters[f] &&
+                            str_contains_ci(pn->valuestring, dest_filters[f])) {
+                            matches = true; break;
+                        }
+                    }
+                }
+            }
+        }
+        if (!matches) continue;
 
         entries[n].cancelled = cancelled && cJSON_IsTrue(cancelled);
         entries[n].minutes = time_to_minutes(departure->valuestring);
@@ -270,25 +305,8 @@ bool sbb_get_departures(const char *station, SbbDeparture results[DEP_COUNT],
     }
 
     cJSON_Delete(root);
+    if (filter_count > 0) ESP_LOGI(TAG, "Filter: %d/%d Züge passen", n, total_trains);
     if (n == 0) return false;
-
-    // Ziel-Filter anwenden
-    if (filter_count > 0 && dest_filters) {
-        int filtered = 0;
-        for (int i = 0; i < n; i++) {
-            for (int f = 0; f < filter_count; f++) {
-                if (dest_filters[f] &&
-                    str_contains_ci(entries[i].destination, dest_filters[f])) {
-                    if (filtered != i) entries[filtered] = entries[i];
-                    filtered++;
-                    break;
-                }
-            }
-        }
-        ESP_LOGI(TAG, "Filter: %d/%d Züge passen", filtered, n);
-        n = filtered;
-        if (n == 0) return false;
-    }
 
     int target_idx = -1;
     for (int i = 0; i < n; i++) {
