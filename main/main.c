@@ -39,6 +39,24 @@ static const char *DEST_FILTERS[] = { "" };
 #define REFRESH_SEC              60
 
 // ==========================================================
+//  LED-FARBEN (R, G, B) – 0..255, werden auf 1/16 gedimmt
+// ==========================================================
+
+// Status des ersten Zuges (deps[0])
+#define LED_OK                   0,   255, 0      // pünktlich / <= 1 Min Verspätung (grün)
+#define LED_DELAY_SMALL          0,   255, 255    // leichte Verspätung (cyan)
+#define LED_DELAY_BIG            128, 0,   255    // grosse Verspätung (lila)
+#define LED_CANCELLED            255, 0,   0      // Ausfall (rot)
+
+// Andere Zustände
+#define LED_LOADING              255, 128, 0      // Laden / Kaltstart (orange)
+#define LED_ERROR                255, 0,   0      // Fehler beim Laden (rot)
+
+// Ab wann gilt welche Verspätung (in Minuten)
+#define DELAY_SMALL_MIN          1       // > 1 Min  -> cyan
+#define DELAY_BIG_MIN            5       // > 5 Min  -> lila
+
+// ==========================================================
 //  HARDWARE – Nur ändern bei anderer Verkabelung
 // ==========================================================
 
@@ -274,7 +292,7 @@ void app_main(void) {
             draw_text(0, 20, "WIFI+NTP...");
             oled_flush();
         }
-        led_set(255, 128, 0);
+        led_set(LED_LOADING);
         sbb_wifi_init(WIFI_SSID, WIFI_PASS);
         time_valid = ntp_sync();
         time(&now); localtime_r(&now, &ti);
@@ -309,7 +327,7 @@ void app_main(void) {
         draw_text(0, 20, "LADE ZUEGE...");
         oled_flush();
     }
-    led_set(255, 128, 0);
+    led_set(LED_LOADING);
 
     if (wakeup != ESP_SLEEP_WAKEUP_UNDEFINED) {
         sbb_wifi_init(WIFI_SSID, WIFI_PASS);
@@ -330,13 +348,13 @@ void app_main(void) {
     SbbDeparture deps[4];
     while (xTaskGetTickCount() < active_end) {
         if (sbb_get_departures(STATION, deps, DEST_FILTERS, DEST_FILTER_COUNT)) {
-            if (deps[0].cancelled)      led_set(255, 0, 0);
-            else if (deps[0].delay > 5) led_set(128, 0, 255);
-            else if (deps[0].delay > 1) led_set(0, 255, 255);
-            else                        led_set(0, 255, 0);
+            if (deps[0].cancelled)                     led_set(LED_CANCELLED);
+            else if (deps[0].delay > DELAY_BIG_MIN)    led_set(LED_DELAY_BIG);
+            else if (deps[0].delay > DELAY_SMALL_MIN)  led_set(LED_DELAY_SMALL);
+            else                                       led_set(LED_OK);
             display_departures(deps);
         } else {
-            led_set(255, 0, 0);
+            led_set(LED_ERROR);
         }
         TickType_t wait_end = xTaskGetTickCount() + pdMS_TO_TICKS((REFRESH_SEC * 1000));
         while (xTaskGetTickCount() < wait_end && xTaskGetTickCount() < active_end) {
