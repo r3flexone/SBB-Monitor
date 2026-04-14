@@ -29,11 +29,11 @@ static const char *DEST_FILTERS[] = { "Olten" };
 // Aktives Zeitfenster (wann das Display automatisch angeht)
 #define ACTIVE_START_H           6       // Startzeit Stunde
 #define ACTIVE_START_M           45      // Startzeit Minute
-#define ACTIVE_END_H             7       // Endzeit Stunde
-#define ACTIVE_END_M             0       // Endzeit Minute
+#define ACTIVE_END_H             6       // Endzeit Stunde
+#define ACTIVE_END_M             55       // Endzeit Minute
 
 // Nach Knopfdruck: wie viele Minuten bleibt Display an
-#define BUTTON_ACTIVE_MIN        10
+#define BUTTON_ACTIVE_MIN        2
 
 // Wie oft Abfahrten neu laden (Sekunden)
 #define REFRESH_SEC              60
