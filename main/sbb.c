@@ -23,6 +23,7 @@ static const char *TAG = "sbb";
 static EventGroupHandle_t wifi_event_group;
 static int retry_count = 0;
 static bool wifi_ready = false;
+static bool wifi_initialised = false;
 static char *http_buf = NULL;
 static int  http_buf_len = 0;
 
@@ -51,6 +52,12 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
 
 void sbb_wifi_init(const char *ssid, const char *password)
 {
+    if (wifi_initialised) {
+        ESP_LOGW(TAG, "WiFi schon initialisiert, skip");
+        return;
+    }
+    wifi_initialised = true;
+
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         nvs_flash_erase();
@@ -107,9 +114,10 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
 static int time_to_minutes(const char *hhmm)
 {
     const char *t = strchr(hhmm, 'T');
-    int h, m;
-    if (t) sscanf(t + 1, "%d:%d", &h, &m);
-    else   sscanf(hhmm, "%d:%d", &h, &m);
+    int h = 0, m = 0;
+    int got = t ? sscanf(t + 1, "%d:%d", &h, &m)
+                : sscanf(hhmm, "%d:%d", &h, &m);
+    if (got != 2) return -1;
     return h * 60 + m;
 }
 
@@ -117,13 +125,15 @@ static void format_time(const char *iso, char out[6])
 {
     const char *t = strchr(iso, 'T');
     if (t) {
-        int h, m;
-        sscanf(t + 1, "%d:%d", &h, &m);
-        snprintf(out, 6, "%02d:%02d", h, m);
-    } else {
-        strncpy(out, iso, 5);
-        out[5] = 0;
+        int h = 0, m = 0;
+        if (sscanf(t + 1, "%d:%d", &h, &m) == 2) {
+            snprintf(out, 6, "%02d:%02d", h, m);
+            return;
+        }
     }
+    // Fallback: erste 5 Zeichen übernehmen
+    strncpy(out, iso, 5);
+    out[5] = 0;
 }
 
 // ===== Filter-Helper =====

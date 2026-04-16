@@ -71,9 +71,9 @@ static const char *DEST_FILTERS[] = { "" };
 #define LED_LOADING              255, 128, 0      // Laden / Kaltstart (orange)
 #define LED_ERROR                255, 0,   0      // Fehler beim Laden (rot)
 
-// Ab wann gilt welche Verspätung (in Minuten)
-#define DELAY_SMALL_MIN          1       // > 1 Min  -> cyan
-#define DELAY_BIG_MIN            5       // > 5 Min  -> lila
+// Ab wann gilt welche Verspätung (in Minuten, inklusive)
+#define DELAY_SMALL_MIN          2       // ab 2 Min  -> cyan
+#define DELAY_BIG_MIN            6       // ab 6 Min  -> lila
 
 // Error-LED blinken (in ms pro Phase; 0 = dauerhaft an)
 #define LED_ERROR_BLINK_MS       500
@@ -440,9 +440,9 @@ void app_main(void) {
             for (int i = 0; i < 4; i++) {
                 if (!deps[i].valid) continue;
                 int s = 0;
-                if (deps[i].cancelled)                    s = 3;
-                else if (deps[i].delay > DELAY_BIG_MIN)   s = 2;
-                else if (deps[i].delay > DELAY_SMALL_MIN) s = 1;
+                if (deps[i].cancelled)                     s = 3;
+                else if (deps[i].delay >= DELAY_BIG_MIN)   s = 2;
+                else if (deps[i].delay >= DELAY_SMALL_MIN) s = 1;
                 if (s > worst) worst = s;
             }
             switch (worst) {
