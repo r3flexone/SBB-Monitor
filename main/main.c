@@ -65,7 +65,7 @@ static const char *DEST_FILTERS[] = {
 //  LED-FARBEN (R, G, B) – 0..255, werden auf 1/16 gedimmt
 // ==========================================================
 
-// Status des ersten Zuges (deps[0])
+// Status-LED (schlimmster Status aller 4 Züge)
 #define LED_OK                   0,   255, 0      // pünktlich / <= 1 Min Verspätung (grün)
 #define LED_DELAY_SMALL          0,   255, 255    // leichte Verspätung (cyan)
 #define LED_DELAY_BIG            128, 0,   255    // grosse Verspätung (lila)
@@ -295,7 +295,8 @@ static void display_departures(SbbDeparture deps[4], bool stale) {
 // ===== SLEEP =====
 static void go_to_sleep(uint64_t us) {
     memset(framebuffer, 0, sizeof(framebuffer));
-    oled_flush(); oled_cmd(0xAE);
+    oled_flush();
+    if (oled_ok) oled_cmd(0xAE);
     led_strip_clear(led_strip); led_strip_refresh(led_strip);
     vTaskDelay(pdMS_TO_TICKS(100));
     esp_sleep_enable_timer_wakeup(us);

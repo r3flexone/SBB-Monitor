@@ -173,7 +173,7 @@ bool sbb_get_departures(const char *station, SbbDeparture results[DEP_COUNT],
 
     memset(results, 0, sizeof(SbbDeparture) * DEP_COUNT);
     http_buf_len = 0;
-    memset(http_buf, 0, HTTP_BUF_SIZE);
+    http_buf[0] = 0;
 
     // Station URL-encodieren (Leerzeichen → %20)
     char station_enc[64];
