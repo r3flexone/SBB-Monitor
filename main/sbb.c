@@ -245,7 +245,8 @@ bool sbb_get_departures(const char *station, SbbDeparture results[DEP_COUNT],
         int  minutes;
     } Entry;
 
-    Entry entries[20];
+    // static: spart ~1 KB Stack (sbb_get_departures wird nur sequentiell aufgerufen)
+    static Entry entries[20];
     memset(entries, 0, sizeof(entries));
     int n = 0;
 
@@ -326,7 +327,11 @@ bool sbb_get_departures(const char *station, SbbDeparture results[DEP_COUNT],
     for (int i = 0; i < n; i++) {
         if (entries[i].minutes >= target_min) { target_idx = i; break; }
     }
-    if (target_idx < 0) target_idx = n - 1;
+    if (target_idx < 0) {
+        ESP_LOGW(TAG, "Alle %d Züge in der Vergangenheit (cur=%02d:%02d)",
+                 n, target_min/60, target_min%60);
+        return false;
+    }
 
     int start = target_idx;
     if (start + DEP_COUNT > n) start = n - DEP_COUNT;

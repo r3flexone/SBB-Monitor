@@ -20,11 +20,15 @@ static const char *TAG = "main";
 // Bahnhof (Name wie auf sbb.ch)
 #define STATION                  "Gelterkinden"
 
-// Ziel-Filter: nur Züge zu diesen Zielen anzeigen
-//   Einfach auflisten, kein NULL nötig!
-//   Kein Filter (alle Züge): DEST_FILTER_COUNT auf 0 setzen
-static const char *DEST_FILTERS[] = { "" };
-#define DEST_FILTER_COUNT  0
+// Ziel-Filter: nur Züge zu diesen Zielen (Endziel ODER Zwischenhalt) anzeigen.
+//   Zeilen auskommentieren = weniger Filter. Alles leer = kein Filter.
+//   Die Zählung passiert automatisch — nichts anderes anpassen.
+static const char *DEST_FILTERS[] = {
+    // "Basel SBB",
+    // "Olten",
+    NULL,  // Platzhalter, damit das Array auch "leer" gültig bleibt
+};
+#define DEST_FILTER_COUNT  ((int)(sizeof(DEST_FILTERS)/sizeof(DEST_FILTERS[0])) - 1)
 
 // Aktives Zeitfenster (wann das Display automatisch angeht)
 #define ACTIVE_START_H           6       // Startzeit Stunde
@@ -458,6 +462,12 @@ void app_main(void) {
         // --- Display ---
         if (success || show_stale) {
             display_departures(success ? deps : last_deps, show_stale);
+        } else {
+            // Kein Erfolg UND kein gültiger Cache → Fehler explizit zeigen
+            draw_header(STATION, false);
+            draw_text(0, 20, "API FEHLER");
+            draw_text(0, 32, "PRUEFE NETZ...");
+            oled_flush();
         }
 
         // --- Adaptiver Refresh-Intervall ---
