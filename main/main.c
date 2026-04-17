@@ -409,13 +409,13 @@ static void check_window_overlaps(void) {
 
 // ===== MAIN =====
 void app_main(void) {
-    esp_sleep_wakeup_cause_t wakeup = esp_sleep_get_wakeup_cause();
-    bool woken_by_button = (wakeup == ESP_SLEEP_WAKEUP_EXT1);
+    uint32_t wakeup = esp_sleep_get_wakeup_causes();
+    bool woken_by_button = (wakeup & BIT(ESP_SLEEP_WAKEUP_EXT1)) != 0;
 
     led_init();
     oled_init_display();
 
-    if (wakeup == ESP_SLEEP_WAKEUP_UNDEFINED) {
+    if (wakeup == 0) {
         log_board_info();
         check_window_overlaps();
     }
@@ -509,7 +509,7 @@ void app_main(void) {
     }
     led_set(LED_LOADING);
 
-    if (wakeup != ESP_SLEEP_WAKEUP_UNDEFINED) {
+    if (wakeup != 0) {
         sbb_wifi_init(WIFI_SSID, WIFI_PASS);
         ntp_sync();
         time(&now); localtime_r(&now, &ti);
