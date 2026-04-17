@@ -12,7 +12,6 @@
 #include "secrets.h"
 #include "driver/gpio.h"
 #include "esp_chip_info.h"
-#include "esp_flash.h"
 #include "esp_system.h"
 
 static const char *TAG = "main";
@@ -340,10 +339,6 @@ static void log_board_info(void) {
     esp_chip_info(&ci);
     ESP_LOGI(TAG, "Chip: ESP32-S3 rev v%d.%d, %d Core(s)",
              ci.revision / 100, ci.revision % 100, ci.cores);
-    uint32_t flash_size = 0;
-    if (esp_flash_get_size(NULL, &flash_size) == ESP_OK) {
-        ESP_LOGI(TAG, "Flash: %lu MB", (unsigned long)(flash_size / (1024 * 1024)));
-    }
     ESP_LOGI(TAG, "Heap frei: %lu KB",
              (unsigned long)(esp_get_free_heap_size() / 1024));
 }
