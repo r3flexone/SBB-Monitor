@@ -94,6 +94,20 @@ void sbb_wifi_init(const char *ssid, const char *password)
     else { ESP_LOGE(TAG, "WiFi Fehler!"); wifi_ready = false; }
 }
 
+bool sbb_wifi_reconnect(void)
+{
+    if (wifi_ready) return true;
+    if (!wifi_initialised) return false;
+    ESP_LOGI(TAG, "WiFi Reconnect...");
+    retry_count = 0;
+    xEventGroupClearBits(wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT);
+    esp_wifi_connect();
+    EventBits_t bits = xEventGroupWaitBits(wifi_event_group,
+                                           WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
+                                           pdFALSE, pdFALSE, pdMS_TO_TICKS(15000));
+    return (bits & WIFI_CONNECTED_BIT) != 0;
+}
+
 // ===== HTTP =====
 
 static esp_err_t http_event_handler(esp_http_client_event_t *evt)

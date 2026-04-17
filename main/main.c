@@ -10,6 +10,10 @@
 #include "lwip/apps/sntp.h"
 #include "sbb.h"
 #include "secrets.h"
+#include "driver/gpio.h"
+#include "esp_chip_info.h"
+#include "esp_flash.h"
+#include "esp_system.h"
 
 static const char *TAG = "main";
 
@@ -30,14 +34,19 @@ static const char *DEST_FILTERS[] = {
 };
 #define DEST_FILTER_COUNT  ((int)(sizeof(DEST_FILTERS)/sizeof(DEST_FILTERS[0])) - 1)
 
-// Aktives Zeitfenster (wann das Display automatisch angeht)
-#define ACTIVE_START_H           6       // Startzeit Stunde
-#define ACTIVE_START_M           45      // Startzeit Minute
-#define ACTIVE_END_H             6       // Endzeit Stunde
-#define ACTIVE_END_M             55       // Endzeit Minute
+// Aktive Zeitfenster (wann das Display automatisch angeht)
+// Beliebig viele Fenster — einfach Zeilen hinzufügen/auskommentieren.
+// Format: { Stunde_Start, Minute_Start, Stunde_Ende, Minute_Ende }
+static const struct { uint8_t start_h, start_m, end_h, end_m; } TIME_WINDOWS[] = {
+    {  6, 45,  6, 55 },   // Morgens
+    // { 17, 30, 17, 45 },  // Abends (Beispiel)
+};
+#define TIME_WINDOW_COUNT  ((int)(sizeof(TIME_WINDOWS)/sizeof(TIME_WINDOWS[0])))
 
 // Nach Knopfdruck: wie viele Minuten bleibt Display an
 #define BUTTON_ACTIVE_MIN        2
+#define BUTTON_LONG_PRESS_MS     3000    // Ab 3s = langer Druck
+#define BUTTON_LONG_ACTIVE_MIN   10      // Bei langem Druck: 10 Min aktiv
 
 // Nur Werktage (Mo–Fr) aktiv? 1 = ja, 0 = auch Sa/So
 #define WEEKDAYS_ONLY            1
@@ -325,6 +334,58 @@ static bool ntp_sync(void) {
     return false;
 }
 
+// ===== BOARD INFO =====
+static void log_board_info(void) {
+    esp_chip_info_t ci;
+    esp_chip_info(&ci);
+    ESP_LOGI(TAG, "Chip: ESP32-S3 rev v%d.%d, %d Core(s)",
+             ci.revision / 100, ci.revision % 100, ci.cores);
+    uint32_t flash_size = 0;
+    if (esp_flash_get_size(NULL, &flash_size) == ESP_OK) {
+        ESP_LOGI(TAG, "Flash: %lu MB", (unsigned long)(flash_size / (1024 * 1024)));
+    }
+    ESP_LOGI(TAG, "Heap frei: %lu KB",
+             (unsigned long)(esp_get_free_heap_size() / 1024));
+}
+
+// ===== SCHLAF-INFO =====
+static void show_sleep_info(int sleep_min) {
+    if (!oled_ok) return;
+    time_t now; struct tm ti;
+    time(&now); localtime_r(&now, &ti);
+    int wake_min = (ti.tm_hour * 60 + ti.tm_min + sleep_min) % (24 * 60);
+    draw_header("SCHLAFE", false);
+    char info[24];
+    snprintf(info, sizeof(info), "BIS %02d:%02d", wake_min / 60, wake_min % 60);
+    draw_text(0, 20, info);
+    if (sleep_min >= 60) {
+        snprintf(info, sizeof(info), "(%dH %dMIN)", sleep_min / 60, sleep_min % 60);
+    } else {
+        snprintf(info, sizeof(info), "(%d MIN)", sleep_min);
+    }
+    draw_text(0, 32, info);
+    oled_flush();
+    vTaskDelay(pdMS_TO_TICKS(2000));
+}
+
+// ===== ZEITFENSTER-VALIDIERUNG =====
+static void check_window_overlaps(void) {
+    for (int i = 0; i < TIME_WINDOW_COUNT; i++) {
+        int s1 = TIME_WINDOWS[i].start_h * 60 + TIME_WINDOWS[i].start_m;
+        int e1 = TIME_WINDOWS[i].end_h * 60 + TIME_WINDOWS[i].end_m;
+        if (e1 <= s1) {
+            ESP_LOGW(TAG, "Zeitfenster %d: Ende vor Start!", i + 1);
+        }
+        for (int j = i + 1; j < TIME_WINDOW_COUNT; j++) {
+            int s2 = TIME_WINDOWS[j].start_h * 60 + TIME_WINDOWS[j].start_m;
+            int e2 = TIME_WINDOWS[j].end_h * 60 + TIME_WINDOWS[j].end_m;
+            if (s1 < e2 && s2 < e1) {
+                ESP_LOGW(TAG, "Zeitfenster %d und %d ueberlappen!", i + 1, j + 1);
+            }
+        }
+    }
+}
+
 // ===== MAIN =====
 void app_main(void) {
     esp_sleep_wakeup_cause_t wakeup = esp_sleep_get_wakeup_cause();
@@ -332,6 +393,31 @@ void app_main(void) {
 
     led_init();
     oled_init_display();
+
+    if (wakeup == ESP_SLEEP_WAKEUP_UNDEFINED) {
+        log_board_info();
+        check_window_overlaps();
+    }
+
+    int button_active_min = BUTTON_ACTIVE_MIN;
+    if (woken_by_button) {
+        gpio_config_t btn = {
+            .pin_bit_mask = 1ULL << BUTTON_GPIO,
+            .mode = GPIO_MODE_INPUT,
+            .pull_up_en = GPIO_PULLUP_ENABLE,
+        };
+        gpio_config(&btn);
+        int hold_ms = 0;
+        while (gpio_get_level(BUTTON_GPIO) == 0 &&
+               hold_ms < BUTTON_LONG_PRESS_MS + 1000) {
+            vTaskDelay(pdMS_TO_TICKS(50));
+            hold_ms += 50;
+        }
+        if (hold_ms >= BUTTON_LONG_PRESS_MS) {
+            button_active_min = BUTTON_LONG_ACTIVE_MIN;
+        }
+        ESP_LOGI(TAG, "Button %d ms -> %d Min aktiv", hold_ms, button_active_min);
+    }
 
     setenv("TZ", "CET-1CEST,M3.5.0,M10.5.0/3", 1);
     tzset();
@@ -352,31 +438,46 @@ void app_main(void) {
         time(&now); localtime_r(&now, &ti);
     }
 
-    int cur_min = ti.tm_hour*60 + ti.tm_min;
-    int start_min = ACTIVE_START_H*60 + ACTIVE_START_M;
-    int end_min = ACTIVE_END_H*60 + ACTIVE_END_M;
-    bool is_weekend = (ti.tm_wday == 0 || ti.tm_wday == 6);  // So=0, Sa=6
+    int cur_min = ti.tm_hour * 60 + ti.tm_min;
+    bool is_weekend = (ti.tm_wday == 0 || ti.tm_wday == 6);
     bool weekend_skip = WEEKDAYS_ONLY && is_weekend;
-    bool in_window = time_valid && !weekend_skip &&
-                     (cur_min >= start_min && cur_min < end_min);
+
+    int active_end_min = 0;
+    bool in_window = false;
+    if (time_valid && !weekend_skip) {
+        for (int i = 0; i < TIME_WINDOW_COUNT; i++) {
+            int ws = TIME_WINDOWS[i].start_h * 60 + TIME_WINDOWS[i].start_m;
+            int we = TIME_WINDOWS[i].end_h * 60 + TIME_WINDOWS[i].end_m;
+            if (cur_min >= ws && cur_min < we) {
+                in_window = true;
+                active_end_min = we;
+                break;
+            }
+        }
+    }
 
     if (!in_window && !woken_by_button) {
-        uint64_t us;
+        int d;
         if (time_valid) {
-            int d = start_min - cur_min;
-            if (d <= 0) d += 24*60;
-            if (d > 120) d = 120;  // max 2h schlafen, dann neu prüfen
-            us = (uint64_t)d * 60ULL * 1000000ULL;
+            d = 24 * 60;
+            for (int i = 0; i < TIME_WINDOW_COUNT; i++) {
+                int ws = TIME_WINDOWS[i].start_h * 60 + TIME_WINDOWS[i].start_m;
+                int diff = ws - cur_min;
+                if (diff <= 0) diff += 24 * 60;
+                if (diff < d) d = diff;
+            }
+            if (d > 120) d = 120;
             if (weekend_skip) ESP_LOGI(TAG, "Wochenende, schlafe %d Min", d);
             else              ESP_LOGI(TAG, "Schlafe %d Min", d);
         } else {
-            us = 5ULL * 60 * 1000000ULL;  // 5 Min Fallback
+            d = 5;
         }
-        go_to_sleep(us);
+        show_sleep_info(d);
+        go_to_sleep((uint64_t)d * 60ULL * 1000000ULL);
         return;
     }
 
-    if (woken_by_button) ESP_LOGI(TAG, "Button aktiv");
+    if (woken_by_button) ESP_LOGI(TAG, "Button aktiv (%d Min)", button_active_min);
     else                 ESP_LOGI(TAG, "Zeitfenster aktiv");
 
     if (oled_ok) {
@@ -396,9 +497,9 @@ void app_main(void) {
 
     TickType_t active_end;
     if (woken_by_button) {
-        active_end = xTaskGetTickCount() + pdMS_TO_TICKS(((uint32_t)BUTTON_ACTIVE_MIN * 60 * 1000));
+        active_end = xTaskGetTickCount() + pdMS_TO_TICKS((uint32_t)button_active_min * 60 * 1000);
     } else {
-        int rem = end_min - cur_min;
+        int rem = active_end_min - cur_min;
         if (rem < 1) rem = 1;
         active_end = xTaskGetTickCount() + pdMS_TO_TICKS((uint32_t)rem * 60 * 1000);
     }
@@ -416,6 +517,9 @@ void app_main(void) {
         pdMS_TO_TICKS((uint32_t)OLED_INVERT_MIN * 60 * 1000);
 
     while (xTaskGetTickCount() < active_end) {
+        // --- WiFi prüfen / reconnect ---
+        sbb_wifi_reconnect();
+
         // --- API-Abfrage mit Retries ---
         bool success = false;
         for (int attempt = 0; attempt < API_RETRY_COUNT && !success; attempt++) {
@@ -538,6 +642,7 @@ void app_main(void) {
         }
     }
 
-    if (inverted) oled_cmd(0xA6);  // vor Sleep wieder normal
-    go_to_sleep(5ULL * 60 * 1000000ULL);  // 5 Min nach Zeitfenster-Ende
+    if (inverted) oled_cmd(0xA6);
+    show_sleep_info(5);
+    go_to_sleep(5ULL * 60 * 1000000ULL);
 }

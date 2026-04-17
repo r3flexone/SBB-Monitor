@@ -15,6 +15,9 @@ typedef struct {
 // WiFi verbinden (einmal aufrufen)
 void sbb_wifi_init(const char *ssid, const char *password);
 
+// WiFi neu verbinden falls Verbindung verloren (no-op wenn schon verbunden)
+bool sbb_wifi_reconnect(void);
+
 // Nächste 4 Abfahrten ab jetzt holen.
 //   station:      Bahnhof-Name wie auf sbb.ch (z.B. "Gelterkinden")
 //   dest_filters: Array von Ziel-Teilstrings (case-insensitive)
