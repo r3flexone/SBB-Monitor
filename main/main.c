@@ -300,6 +300,32 @@ static void display_departures(SbbDeparture deps[4], bool stale) {
     oled_flush();
 }
 
+// ===== COUNTDOWN BAR =====
+static void draw_countdown_bar(TickType_t active_start, TickType_t active_end) {
+    TickType_t now = xTaskGetTickCount();
+    int total = (int)(active_end - active_start);
+    int remaining = (int)(active_end - now);
+    if (remaining < 0) remaining = 0;
+    if (total <= 0) return;
+    int bar_w = (remaining * OLED_WIDTH) / total;
+    for (int x = 0; x < OLED_WIDTH; x++) {
+        if (x < bar_w)
+            framebuffer[x + 7 * OLED_WIDTH] |= 0xC0;
+        else
+            framebuffer[x + 7 * OLED_WIDTH] &= ~0xC0;
+    }
+}
+
+static void flush_page7(void) {
+    if (!oled_ok) return;
+    oled_cmd(0x21); oled_cmd(0); oled_cmd(127);
+    oled_cmd(0x22); oled_cmd(7); oled_cmd(7);
+    uint8_t buf[OLED_WIDTH + 1];
+    buf[0] = 0x40;
+    memcpy(&buf[1], &framebuffer[7 * OLED_WIDTH], OLED_WIDTH);
+    i2c_master_transmit(oled_dev, buf, sizeof(buf), 100);
+}
+
 // ===== SLEEP =====
 static void go_to_sleep(uint64_t us) {
     memset(framebuffer, 0, sizeof(framebuffer));
@@ -490,13 +516,14 @@ void app_main(void) {
         cur_min = ti.tm_hour*60 + ti.tm_min;
     }
 
+    TickType_t active_start = xTaskGetTickCount();
     TickType_t active_end;
     if (woken_by_button) {
-        active_end = xTaskGetTickCount() + pdMS_TO_TICKS((uint32_t)button_active_min * 60 * 1000);
+        active_end = active_start + pdMS_TO_TICKS((uint32_t)button_active_min * 60 * 1000);
     } else {
         int rem = active_end_min - cur_min;
         if (rem < 1) rem = 1;
-        active_end = xTaskGetTickCount() + pdMS_TO_TICKS((uint32_t)rem * 60 * 1000);
+        active_end = active_start + pdMS_TO_TICKS((uint32_t)rem * 60 * 1000);
     }
 
     // static: aus dem Stack raus (verhindert Stack-Overflow im Main-Task)
@@ -569,6 +596,8 @@ void app_main(void) {
             draw_text(0, 32, "PRUEFE NETZ...");
             oled_flush();
         }
+        draw_countdown_bar(active_start, active_end);
+        flush_page7();
 
         // --- Adaptiver Refresh-Intervall ---
         int refresh_sec;
@@ -613,6 +642,7 @@ void app_main(void) {
         bool blink_on = true;
         TickType_t next_toggle = xTaskGetTickCount() + pdMS_TO_TICKS(LED_ERROR_BLINK_MS);
         TickType_t next_clock = xTaskGetTickCount() + pdMS_TO_TICKS(30 * 1000);
+        TickType_t next_bar = xTaskGetTickCount() + pdMS_TO_TICKS(1000);
         while (xTaskGetTickCount() < wait_end && xTaskGetTickCount() < active_end) {
             TickType_t t = xTaskGetTickCount();
             // LED blinken bei Fehler
@@ -631,7 +661,15 @@ void app_main(void) {
             // Uhr auf dem Display alle 30 s aktualisieren
             if (has_cached && t >= next_clock) {
                 display_departures(last_deps, show_stale);
+                draw_countdown_bar(active_start, active_end);
+                flush_page7();
                 next_clock = t + pdMS_TO_TICKS(30 * 1000);
+            }
+            // Countdown-Bar jede Sekunde aktualisieren
+            if (t >= next_bar) {
+                draw_countdown_bar(active_start, active_end);
+                flush_page7();
+                next_bar = t + pdMS_TO_TICKS(1000);
             }
             vTaskDelay(pdMS_TO_TICKS(100));
         }
