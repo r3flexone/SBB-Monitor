@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include <time.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -13,100 +14,23 @@
 #include "driver/gpio.h"
 #include "esp_chip_info.h"
 #include "esp_system.h"
+#include "nvs_config.h"
+#include "http_server.h"
+#include "nvs_flash.h"
+#include "mdns.h"
 
 static const char *TAG = "main";
 
-// ==========================================================
-//  EINSTELLUNGEN – Hier alles anpassen
-// ==========================================================
+// Konfiguration — geladen aus NVS in app_main, überall verfügbar
+static blink_config_t cfg;
 
-// Bahnhof (Name wie auf sbb.ch)
-#define STATION                  "Gelterkinden"
-
-// Ziel-Filter: nur Züge zu diesen Zielen (Endziel ODER Zwischenhalt) anzeigen.
-//   Zeilen auskommentieren = weniger Filter. Alles leer = kein Filter.
-//   Die Zählung passiert automatisch — nichts anderes anpassen.
-static const char *DEST_FILTERS[] = {
-    // "Basel SBB",
-    // "Olten",
-    NULL,  // Platzhalter, damit das Array auch "leer" gültig bleibt
-};
-#define DEST_FILTER_COUNT  ((int)(sizeof(DEST_FILTERS)/sizeof(DEST_FILTERS[0])) - 1)
-
-// Aktive Zeitfenster (wann das Display automatisch angeht)
-// Beliebig viele Fenster — einfach Zeilen hinzufügen/auskommentieren.
-// Format: { Stunde_Start, Minute_Start, Stunde_Ende, Minute_Ende }
-static const struct { uint8_t start_h, start_m, end_h, end_m; } TIME_WINDOWS[] = {
-    {  6, 45,  6, 55 },   // Morgens
-    // { 17, 30, 17, 45 },  // Abends (Beispiel)
-};
-#define TIME_WINDOW_COUNT  ((int)(sizeof(TIME_WINDOWS)/sizeof(TIME_WINDOWS[0])))
-
-// Nach Knopfdruck: wie viele Minuten bleibt Display an
-#define BUTTON_ACTIVE_MIN        2
-#define BUTTON_LONG_PRESS_MS     3000    // Ab 3s = langer Druck
-#define BUTTON_LONG_ACTIVE_MIN   10      // Bei langem Druck: 10 Min aktiv
-
-// Nur Werktage (Mo–Fr) aktiv? 1 = ja, 0 = auch Sa/So
-#define WEEKDAYS_ONLY            1
-
-// OLED Burn-in-Schutz: alle X Min Display invertieren (0 = aus)
-#define OLED_INVERT_MIN          5
-
-// Wenn API fehlschlägt: mehrere Versuche bevor "Fehler" angezeigt wird
-#define API_RETRY_COUNT          3       // Anzahl Versuche pro Refresh
-#define API_RETRY_DELAY_MS       5000    // Wartezeit zwischen Versuchen
-
-// Wie lange dürfen alte (gecachte) Daten nach API-Ausfall noch gezeigt werden
-#define STALE_MAX_MIN            10
-
-// Adaptive Refresh-Rate (abhängig von Minuten bis zum nächsten Zug)
-#define REFRESH_NEAR_SEC         30      // bis NEAR_MIN Min:  alle 30 s
-#define REFRESH_MID_SEC          120     // bis MID_MIN Min:   alle 2 Min
-#define REFRESH_FAR_SEC          300     // bis FAR_MIN Min:   alle 5 Min
-#define REFRESH_VERYFAR_SEC      600     // darüber:            alle 10 Min
-#define REFRESH_NEAR_MIN         5
-#define REFRESH_MID_MIN          10
-#define REFRESH_FAR_MIN          30
-
-// ==========================================================
-//  LED-FARBEN (R, G, B) – 0..255, werden auf 1/16 gedimmt
-// ==========================================================
-
-// Status-LED (schlimmster Status aller 4 Züge)
-#define LED_OK                   0,   255, 0      // pünktlich / <= 1 Min Verspätung (grün)
-#define LED_DELAY_SMALL          0,   255, 255    // leichte Verspätung (cyan)
-#define LED_DELAY_BIG            128, 0,   255    // grosse Verspätung (lila)
-#define LED_CANCELLED            255, 0,   0      // Ausfall (rot)
-
-// Andere Zustände
-#define LED_LOADING              255, 128, 0      // Laden / Kaltstart (orange)
-#define LED_ERROR                255, 0,   0      // Fehler beim Laden (rot)
-
-// Ab wann gilt welche Verspätung (in Minuten, inklusive)
-#define DELAY_SMALL_MIN          2       // ab 2 Min  -> cyan
-#define DELAY_BIG_MIN            6       // ab 6 Min  -> lila
-
-// Error-LED blinken (in ms pro Phase; 0 = dauerhaft an)
-#define LED_ERROR_BLINK_MS       500
-
-// ==========================================================
-//  HARDWARE – Nur ändern bei anderer Verkabelung
-// ==========================================================
-
-#define BUTTON_GPIO              0
-#define LED_GPIO                 48
-#define I2C_SCL_GPIO             5
-#define I2C_SDA_GPIO             4
-#define OLED_ADDR                0x3C
-#define OLED_WIDTH               128
-#define OLED_HEIGHT              64
-#define NTP_TIMEOUT_MS           5000
+#define OLED_WIDTH  128
+#define OLED_HEIGHT  64
 
 // ===== NEOPIXEL =====
 static led_strip_handle_t led_strip;
 static void led_init(void) {
-    led_strip_config_t s = { .strip_gpio_num = LED_GPIO, .max_leds = 1 };
+    led_strip_config_t s = { .strip_gpio_num = cfg.ledGpio, .max_leds = 1 };
     led_strip_rmt_config_t r = { .resolution_hz = 10*1000*1000, .flags.with_dma = false };
     ESP_ERROR_CHECK(led_strip_new_rmt_device(&s, &r, &led_strip));
     led_strip_clear(led_strip);
@@ -137,16 +61,18 @@ static void oled_flush(void) {
     }
 }
 static void oled_init_display(void) {
+    int oled_addr = (int)strtol(cfg.oledAddr, NULL, 16);
+    if (oled_addr == 0) oled_addr = 0x3C;
     i2c_master_bus_config_t bc = {
         .clk_source = I2C_CLK_SRC_DEFAULT, .i2c_port = I2C_NUM_0,
-        .scl_io_num = I2C_SCL_GPIO, .sda_io_num = I2C_SDA_GPIO,
+        .scl_io_num = cfg.sclGpio, .sda_io_num = cfg.sdaGpio,
         .glitch_ignore_cnt = 7, .flags.enable_internal_pullup = true,
     };
     i2c_master_bus_handle_t bus;
     if (i2c_new_master_bus(&bc, &bus) != ESP_OK) return;
     i2c_device_config_t dc = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
-        .device_address = OLED_ADDR, .scl_speed_hz = 100000,
+        .device_address = (uint16_t)oled_addr, .scl_speed_hz = 100000,
     };
     if (i2c_master_bus_add_device(bus, &dc, &oled_dev) != ESP_OK) return;
     oled_cmd(0xAE); oled_cmd(0xD5); oled_cmd(0x80);
@@ -166,6 +92,7 @@ static void draw_pixel(int x, int y, bool on) {
     else    framebuffer[x+(y/8)*OLED_WIDTH] &= ~(1<<(y%8));
 }
 
+// ===== FONT =====
 static const uint8_t font5x7[][5] = {
     {0x00,0x00,0x00,0x00,0x00},{0x00,0x00,0x5F,0x00,0x00},{0x00,0x07,0x00,0x07,0x00},
     {0x14,0x7F,0x14,0x7F,0x14},{0x24,0x2A,0x7F,0x2A,0x12},{0x23,0x13,0x08,0x64,0x62},
@@ -204,14 +131,13 @@ static int draw_char_utf8(int x, int y, const unsigned char *s, int *consumed) {
         *consumed = 2;
         unsigned char b = s[1];
         switch (b) {
-            case 0x84: draw_glyph(x,y,font_umlaut[0]); return x+6;  // Ä
-            case 0x96: draw_glyph(x,y,font_umlaut[1]); return x+6;  // Ö
-            case 0x9C: draw_glyph(x,y,font_umlaut[2]); return x+6;  // Ü
-            case 0xA4: draw_glyph(x,y,font_umlaut[3]); return x+6;  // ä
-            case 0xB6: draw_glyph(x,y,font_umlaut[4]); return x+6;  // ö
-            case 0xBC: draw_glyph(x,y,font_umlaut[5]); return x+6;  // ü
+            case 0x84: draw_glyph(x,y,font_umlaut[0]); return x+6;
+            case 0x96: draw_glyph(x,y,font_umlaut[1]); return x+6;
+            case 0x9C: draw_glyph(x,y,font_umlaut[2]); return x+6;
+            case 0xA4: draw_glyph(x,y,font_umlaut[3]); return x+6;
+            case 0xB6: draw_glyph(x,y,font_umlaut[4]); return x+6;
+            case 0xBC: draw_glyph(x,y,font_umlaut[5]); return x+6;
         }
-        // Fallback: akzentuierte Zeichen ohne Akzent rendern (é→E, à→A, ô→O, …)
         char base = 0;
         if      ((b >= 0x80 && b <= 0x85) || (b >= 0xA0 && b <= 0xA5)) base = 'A';
         else if (b == 0x87 || b == 0xA7)                               base = 'C';
@@ -225,7 +151,7 @@ static int draw_char_utf8(int x, int y, const unsigned char *s, int *consumed) {
             draw_glyph(x, y, font5x7[base - 0x20]);
             return x + 6;
         }
-        *consumed = 1;  // unbekanntes UTF-8 — als Einzel-Byte weiterbehandeln
+        *consumed = 1;
     }
     char ch = (char)c;
     if (ch >= 'a' && ch <= 'z') ch -= 32;
@@ -242,12 +168,10 @@ static void draw_text(int x, int y, const char *text) {
 }
 static void draw_header(const char *title, bool stale) {
     memset(framebuffer, 0, sizeof(framebuffer));
-    // Titel links (auf max 15 Zeichen gekürzt damit die Uhr rechts Platz hat)
     char hdr[20];
     if (stale) snprintf(hdr, sizeof(hdr), "!%.14s", title);
     else       snprintf(hdr, sizeof(hdr), "%.15s", title);
     draw_text(0, 0, hdr);
-    // Uhrzeit oben rechts (5 Zeichen x 6 Pixel = 30 Pixel breit)
     time_t now; struct tm ti;
     time(&now); localtime_r(&now, &ti);
     if (ti.tm_year >= 100) {
@@ -259,7 +183,7 @@ static void draw_header(const char *title, bool stale) {
 }
 
 static void display_departures(SbbDeparture deps[4], bool stale) {
-    draw_header(STATION, stale);
+    draw_header(cfg.station, stale);
     int yp[] = {14, 27, 40, 53};
     for (int i = 0; i < 4; i++) {
         if (!deps[i].valid) continue;
@@ -334,7 +258,7 @@ static void go_to_sleep(uint64_t us) {
     led_strip_clear(led_strip); led_strip_refresh(led_strip);
     vTaskDelay(pdMS_TO_TICKS(100));
     esp_sleep_enable_timer_wakeup(us);
-    esp_sleep_enable_ext1_wakeup(1ULL << BUTTON_GPIO, ESP_EXT1_WAKEUP_ANY_LOW);
+    esp_sleep_enable_ext1_wakeup(1ULL << cfg.buttonGpio, ESP_EXT1_WAKEUP_ANY_LOW);
     esp_deep_sleep_start();
 }
 
@@ -346,7 +270,7 @@ static bool ntp_sync(void) {
     else { sntp_stop(); sntp_init(); }
 
     time_t now; struct tm ti;
-    int steps = NTP_TIMEOUT_MS / 250;
+    int steps = (cfg.ntpTimeoutS * 1000) / 250;
     for (int i = 0; i < steps; i++) {
         vTaskDelay(pdMS_TO_TICKS(250));
         time(&now); localtime_r(&now, &ti);
@@ -355,7 +279,7 @@ static bool ntp_sync(void) {
             return true;
         }
     }
-    ESP_LOGE(TAG, "NTP FAIL nach %d ms", NTP_TIMEOUT_MS);
+    ESP_LOGE(TAG, "NTP FAIL nach %d s", cfg.ntpTimeoutS);
     return false;
 }
 
@@ -391,15 +315,15 @@ static void show_sleep_info(int sleep_min) {
 
 // ===== ZEITFENSTER-VALIDIERUNG =====
 static void check_window_overlaps(void) {
-    for (int i = 0; i < TIME_WINDOW_COUNT; i++) {
-        int s1 = TIME_WINDOWS[i].start_h * 60 + TIME_WINDOWS[i].start_m;
-        int e1 = TIME_WINDOWS[i].end_h * 60 + TIME_WINDOWS[i].end_m;
+    for (int i = 0; i < cfg.timeWindowCount; i++) {
+        int s1 = cfg.timeWindows[i].startH * 60 + cfg.timeWindows[i].startM;
+        int e1 = cfg.timeWindows[i].endH * 60 + cfg.timeWindows[i].endM;
         if (e1 <= s1) {
             ESP_LOGW(TAG, "Zeitfenster %d: Ende vor Start!", i + 1);
         }
-        for (int j = i + 1; j < TIME_WINDOW_COUNT; j++) {
-            int s2 = TIME_WINDOWS[j].start_h * 60 + TIME_WINDOWS[j].start_m;
-            int e2 = TIME_WINDOWS[j].end_h * 60 + TIME_WINDOWS[j].end_m;
+        for (int j = i + 1; j < cfg.timeWindowCount; j++) {
+            int s2 = cfg.timeWindows[j].startH * 60 + cfg.timeWindows[j].startM;
+            int e2 = cfg.timeWindows[j].endH * 60 + cfg.timeWindows[j].endM;
             if (s1 < e2 && s2 < e1) {
                 ESP_LOGW(TAG, "Zeitfenster %d und %d ueberlappen!", i + 1, j + 1);
             }
@@ -409,6 +333,14 @@ static void check_window_overlaps(void) {
 
 // ===== MAIN =====
 void app_main(void) {
+    // NVS + Config ganz oben (vor Hardware-Init, da GPIO-Pins aus Config kommen)
+    esp_err_t nvs_ret = nvs_flash_init();
+    if (nvs_ret == ESP_ERR_NVS_NO_FREE_PAGES || nvs_ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        nvs_flash_erase();
+        nvs_flash_init();
+    }
+    nvs_config_load(&cfg);
+
     uint32_t wakeup = esp_sleep_get_wakeup_causes();
     bool woken_by_button = (wakeup & BIT(ESP_SLEEP_WAKEUP_EXT1)) != 0;
 
@@ -420,22 +352,22 @@ void app_main(void) {
         check_window_overlaps();
     }
 
-    int button_active_min = BUTTON_ACTIVE_MIN;
+    int button_active_min = cfg.buttonActiveMin;
     if (woken_by_button) {
         gpio_config_t btn = {
-            .pin_bit_mask = 1ULL << BUTTON_GPIO,
+            .pin_bit_mask = 1ULL << cfg.buttonGpio,
             .mode = GPIO_MODE_INPUT,
             .pull_up_en = GPIO_PULLUP_ENABLE,
         };
         gpio_config(&btn);
         int hold_ms = 0;
-        while (gpio_get_level(BUTTON_GPIO) == 0 &&
-               hold_ms < BUTTON_LONG_PRESS_MS + 1000) {
+        while (gpio_get_level(cfg.buttonGpio) == 0 &&
+               hold_ms < cfg.buttonLongPressMs + 1000) {
             vTaskDelay(pdMS_TO_TICKS(50));
             hold_ms += 50;
         }
-        if (hold_ms >= BUTTON_LONG_PRESS_MS) {
-            button_active_min = BUTTON_LONG_ACTIVE_MIN;
+        if (hold_ms >= cfg.buttonLongPressMs) {
+            button_active_min = cfg.buttonLongActiveMin;
         }
         ESP_LOGI(TAG, "Button %d ms -> %d Min aktiv", hold_ms, button_active_min);
     }
@@ -453,22 +385,24 @@ void app_main(void) {
             draw_text(0, 20, "WIFI+NTP...");
             oled_flush();
         }
-        led_set(LED_LOADING);
-        sbb_wifi_init(WIFI_SSID, WIFI_PASS);
+        led_set(cfg.ledLoadingRgb[0], cfg.ledLoadingRgb[1], cfg.ledLoadingRgb[2]);
+        const char *wifi_ssid = cfg.ssid[0] ? cfg.ssid : WIFI_SSID;
+        const char *wifi_pass = cfg.password[0] ? cfg.password : WIFI_PASS;
+        sbb_wifi_init(wifi_ssid, wifi_pass);
         time_valid = ntp_sync();
         time(&now); localtime_r(&now, &ti);
     }
 
     int cur_min = ti.tm_hour * 60 + ti.tm_min;
     bool is_weekend = (ti.tm_wday == 0 || ti.tm_wday == 6);
-    bool weekend_skip = WEEKDAYS_ONLY && is_weekend;
+    bool weekend_skip = cfg.weekdaysOnly && is_weekend;
 
     int active_end_min = 0;
     bool in_window = false;
     if (time_valid && !weekend_skip) {
-        for (int i = 0; i < TIME_WINDOW_COUNT; i++) {
-            int ws = TIME_WINDOWS[i].start_h * 60 + TIME_WINDOWS[i].start_m;
-            int we = TIME_WINDOWS[i].end_h * 60 + TIME_WINDOWS[i].end_m;
+        for (int i = 0; i < cfg.timeWindowCount; i++) {
+            int ws = cfg.timeWindows[i].startH * 60 + cfg.timeWindows[i].startM;
+            int we = cfg.timeWindows[i].endH * 60 + cfg.timeWindows[i].endM;
             if (cur_min >= ws && cur_min < we) {
                 in_window = true;
                 active_end_min = we;
@@ -481,13 +415,13 @@ void app_main(void) {
         int d;
         if (time_valid) {
             d = 24 * 60;
-            for (int i = 0; i < TIME_WINDOW_COUNT; i++) {
-                int ws = TIME_WINDOWS[i].start_h * 60 + TIME_WINDOWS[i].start_m;
+            for (int i = 0; i < cfg.timeWindowCount; i++) {
+                int ws = cfg.timeWindows[i].startH * 60 + cfg.timeWindows[i].startM;
                 int diff = ws - cur_min;
                 if (diff <= 0) diff += 24 * 60;
                 if (diff < d) d = diff;
             }
-            if (d > 120) d = 120;
+            if (d > cfg.sleepMaxMin) d = cfg.sleepMaxMin;
             if (weekend_skip) ESP_LOGI(TAG, "Wochenende, schlafe %d Min", d);
             else              ESP_LOGI(TAG, "Schlafe %d Min", d);
         } else {
@@ -503,18 +437,26 @@ void app_main(void) {
 
     if (oled_ok) {
         oled_cmd(0xAF);
-        draw_header(STATION, false);
+        draw_header(cfg.station, false);
         draw_text(0, 20, "LADE ZUEGE...");
         oled_flush();
     }
-    led_set(LED_LOADING);
+    led_set(cfg.ledLoadingRgb[0], cfg.ledLoadingRgb[1], cfg.ledLoadingRgb[2]);
 
     if (wakeup != 0) {
-        sbb_wifi_init(WIFI_SSID, WIFI_PASS);
+        const char *wifi_ssid = cfg.ssid[0] ? cfg.ssid : WIFI_SSID;
+        const char *wifi_pass = cfg.password[0] ? cfg.password : WIFI_PASS;
+        sbb_wifi_init(wifi_ssid, wifi_pass);
         ntp_sync();
         time(&now); localtime_r(&now, &ti);
         cur_min = ti.tm_hour*60 + ti.tm_min;
     }
+
+    // mDNS + HTTP-Server (WiFi/netif bereits durch sbb_wifi_init aktiv)
+    mdns_init();
+    mdns_hostname_set("blink");
+    mdns_instance_name_set("Blink SBB Monitor");
+    http_server_start();
 
     TickType_t active_start = xTaskGetTickCount();
     TickType_t active_end;
@@ -526,6 +468,11 @@ void app_main(void) {
         active_end = active_start + pdMS_TO_TICKS((uint32_t)rem * 60 * 1000);
     }
 
+    // Dest-Filter: Pointer-Array aus cfg.destFilters[][] bauen
+    const char *filter_ptrs[4] = {0};
+    for (int i = 0; i < cfg.destFilterCount && i < 4; i++)
+        filter_ptrs[i] = cfg.destFilters[i];
+
     // static: aus dem Stack raus (verhindert Stack-Overflow im Main-Task)
     static SbbDeparture deps[4];
     static SbbDeparture last_deps[4];
@@ -536,23 +483,20 @@ void app_main(void) {
 
     bool inverted = false;
     TickType_t next_invert = xTaskGetTickCount() +
-        pdMS_TO_TICKS((uint32_t)OLED_INVERT_MIN * 60 * 1000);
+        pdMS_TO_TICKS((uint32_t)(cfg.oledInvertMin > 0 ? cfg.oledInvertMin : 1440) * 60 * 1000);
 
     while (xTaskGetTickCount() < active_end) {
-        // --- WiFi prüfen / reconnect ---
         sbb_wifi_reconnect();
 
-        // --- API-Abfrage mit Retries ---
         bool success = false;
-        for (int attempt = 0; attempt < API_RETRY_COUNT && !success; attempt++) {
+        for (int attempt = 0; attempt < cfg.apiRetryCount && !success; attempt++) {
             if (attempt > 0) {
-                ESP_LOGW(TAG, "API Retry %d/%d", attempt + 1, API_RETRY_COUNT);
-                vTaskDelay(pdMS_TO_TICKS(API_RETRY_DELAY_MS));
+                ESP_LOGW(TAG, "API Retry %d/%d", attempt + 1, cfg.apiRetryCount);
+                vTaskDelay(pdMS_TO_TICKS((uint32_t)cfg.apiRetryDelayS * 1000));
             }
-            success = sbb_get_departures(STATION, deps, DEST_FILTERS, DEST_FILTER_COUNT);
+            success = sbb_get_departures(cfg.station, deps, filter_ptrs, cfg.destFilterCount);
         }
 
-        // --- Cache aktualisieren bzw. als Stale markieren ---
         bool show_stale = false;
         if (success) {
             memcpy(last_deps, deps, sizeof(deps));
@@ -560,38 +504,37 @@ void app_main(void) {
             time(&cached_time);
         } else {
             time_t n; time(&n);
-            if (has_cached && (n - cached_time) < STALE_MAX_MIN * 60) {
+            if (has_cached && (n - cached_time) < cfg.staleMaxMin * 60) {
                 show_stale = true;
             }
         }
 
-        // --- LED setzen (schlimmster Status aller 4 Züge) ---
+        // LED: schlimmster Status aller 4 Züge
         if (success) {
-            int worst = 0;  // 0=OK, 1=small, 2=big, 3=cancelled
+            int worst = 0;
             for (int i = 0; i < 4; i++) {
                 if (!deps[i].valid) continue;
                 int s = 0;
-                if (deps[i].cancelled)                     s = 3;
-                else if (deps[i].delay >= DELAY_BIG_MIN)   s = 2;
-                else if (deps[i].delay >= DELAY_SMALL_MIN) s = 1;
+                if (deps[i].cancelled)                        s = 3;
+                else if (deps[i].delay >= cfg.delayBigMin)   s = 2;
+                else if (deps[i].delay >= cfg.delaySmallMin) s = 1;
                 if (s > worst) worst = s;
             }
             switch (worst) {
-                case 3:  led_set(LED_CANCELLED);   break;
-                case 2:  led_set(LED_DELAY_BIG);   break;
-                case 1:  led_set(LED_DELAY_SMALL); break;
-                default: led_set(LED_OK);          break;
+                case 3:  led_set(cfg.ledCancelledRgb[0],  cfg.ledCancelledRgb[1],  cfg.ledCancelledRgb[2]);  break;
+                case 2:  led_set(cfg.ledDelayBigRgb[0],   cfg.ledDelayBigRgb[1],   cfg.ledDelayBigRgb[2]);   break;
+                case 1:  led_set(cfg.ledDelaySmallRgb[0], cfg.ledDelaySmallRgb[1], cfg.ledDelaySmallRgb[2]); break;
+                default: led_set(cfg.ledOkRgb[0],         cfg.ledOkRgb[1],         cfg.ledOkRgb[2]);         break;
             }
         } else {
-            led_set(LED_ERROR);
+            led_set(cfg.ledCancelledRgb[0], cfg.ledCancelledRgb[1], cfg.ledCancelledRgb[2]);
         }
 
-        // --- Display ---
+        // Display
         if (success || show_stale) {
             display_departures(success ? deps : last_deps, show_stale);
         } else {
-            // Kein Erfolg UND kein gültiger Cache → Fehler explizit zeigen
-            draw_header(STATION, false);
+            draw_header(cfg.station, false);
             draw_text(0, 20, "API FEHLER");
             draw_text(0, 32, "PRUEFE NETZ...");
             oled_flush();
@@ -599,10 +542,10 @@ void app_main(void) {
         draw_countdown_bar(active_start, active_end);
         flush_page7();
 
-        // --- Adaptiver Refresh-Intervall ---
+        // Adaptiver Refresh
         int refresh_sec;
         if (success) {
-            int min_to_next = -1;  // -1 = noch nichts gefunden
+            int min_to_next = -1;
             time_t n; struct tm nt; time(&n); localtime_r(&n, &nt);
             int cur_m = nt.tm_hour * 60 + nt.tm_min;
             for (int i = 0; i < 4; i++) {
@@ -610,62 +553,49 @@ void app_main(void) {
                 int h, m;
                 if (sscanf(deps[i].time, "%d:%d", &h, &m) == 2) {
                     int diff = (h * 60 + m + deps[i].delay) - cur_m;
-                    if (diff >= 0 && (min_to_next < 0 || diff < min_to_next)) {
+                    if (diff >= 0 && (min_to_next < 0 || diff < min_to_next))
                         min_to_next = diff;
-                    }
                 }
             }
             if (min_to_next < 0) {
-                // Keine zukünftigen Züge in der Liste – Debug-Log + langsamer Refresh
                 ESP_LOGW(TAG, "Kein Zug in Zukunft! cur_m=%d", cur_m);
-                for (int i = 0; i < 4; i++) {
-                    ESP_LOGW(TAG, "  deps[%d] valid=%d canc=%d time='%s' delay=%d",
-                             i, deps[i].valid, deps[i].cancelled,
-                             deps[i].time, deps[i].delay);
-                }
-                refresh_sec = REFRESH_FAR_SEC;
-            } else if (min_to_next <= REFRESH_NEAR_MIN) refresh_sec = REFRESH_NEAR_SEC;
-            else if (min_to_next <= REFRESH_MID_MIN)    refresh_sec = REFRESH_MID_SEC;
-            else if (min_to_next <= REFRESH_FAR_MIN)    refresh_sec = REFRESH_FAR_SEC;
-            else                                        refresh_sec = REFRESH_VERYFAR_SEC;
-            if (min_to_next >= 0) {
-                ESP_LOGI(TAG, "Nächster Zug in %d Min -> Refresh %d s",
-                         min_to_next, refresh_sec);
-            }
+                refresh_sec = cfg.refreshFarSec;
+            } else if (min_to_next <= cfg.refreshNearMin) refresh_sec = cfg.refreshNearSec;
+            else if (min_to_next <= cfg.refreshMidMin)    refresh_sec = cfg.refreshMidSec;
+            else if (min_to_next <= cfg.refreshFarMin)    refresh_sec = cfg.refreshFarSec;
+            else                                          refresh_sec = cfg.refreshVeryfarSec;
+            if (min_to_next >= 0)
+                ESP_LOGI(TAG, "Nächster Zug in %d Min -> Refresh %d s", min_to_next, refresh_sec);
         } else {
-            refresh_sec = REFRESH_MID_SEC;  // bei Fehler nicht zu oft hämmern
+            refresh_sec = cfg.refreshMidSec;
         }
 
-        // --- Wartephase mit LED-Blink, OLED-Invert und Uhr-Update ---
+        // Wartephase mit LED-Blink, OLED-Invert und Uhr-Update
         TickType_t wait_end = xTaskGetTickCount() +
             pdMS_TO_TICKS((uint32_t)refresh_sec * 1000);
         bool blink_on = true;
-        TickType_t next_toggle = xTaskGetTickCount() + pdMS_TO_TICKS(LED_ERROR_BLINK_MS);
+        TickType_t next_toggle = xTaskGetTickCount() + pdMS_TO_TICKS((uint32_t)cfg.ledErrorBlinkMs);
         TickType_t next_clock = xTaskGetTickCount() + pdMS_TO_TICKS(30 * 1000);
         TickType_t next_bar = xTaskGetTickCount() + pdMS_TO_TICKS(1000);
         while (xTaskGetTickCount() < wait_end && xTaskGetTickCount() < active_end) {
             TickType_t t = xTaskGetTickCount();
-            // LED blinken bei Fehler
-            if (!success && LED_ERROR_BLINK_MS > 0 && t >= next_toggle) {
+            if (!success && cfg.ledErrorBlinkMs > 0 && t >= next_toggle) {
                 blink_on = !blink_on;
-                if (blink_on) led_set(LED_ERROR);
+                if (blink_on) led_set(cfg.ledCancelledRgb[0], cfg.ledCancelledRgb[1], cfg.ledCancelledRgb[2]);
                 else          led_set(0, 0, 0);
-                next_toggle = t + pdMS_TO_TICKS(LED_ERROR_BLINK_MS);
+                next_toggle = t + pdMS_TO_TICKS((uint32_t)cfg.ledErrorBlinkMs);
             }
-            // OLED Burn-in-Schutz: periodisch invertieren
-            if (OLED_INVERT_MIN > 0 && t >= next_invert) {
+            if (cfg.oledInvertMin > 0 && t >= next_invert) {
                 inverted = !inverted;
                 oled_cmd(inverted ? 0xA7 : 0xA6);
-                next_invert = t + pdMS_TO_TICKS((uint32_t)OLED_INVERT_MIN * 60 * 1000);
+                next_invert = t + pdMS_TO_TICKS((uint32_t)cfg.oledInvertMin * 60 * 1000);
             }
-            // Uhr auf dem Display alle 30 s aktualisieren
             if (has_cached && t >= next_clock) {
                 display_departures(last_deps, show_stale);
                 draw_countdown_bar(active_start, active_end);
                 flush_page7();
                 next_clock = t + pdMS_TO_TICKS(30 * 1000);
             }
-            // Countdown-Bar jede Sekunde aktualisieren
             if (t >= next_bar) {
                 draw_countdown_bar(active_start, active_end);
                 flush_page7();
@@ -676,6 +606,7 @@ void app_main(void) {
     }
 
     if (inverted) oled_cmd(0xA6);
+    http_server_stop();
     show_sleep_info(5);
     go_to_sleep(5ULL * 60 * 1000000ULL);
 }
