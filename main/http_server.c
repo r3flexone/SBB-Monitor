@@ -158,7 +158,7 @@ static esp_err_t handler_config_post(httpd_req_t *req) {
     #define GI(key, field) { cJSON *v=cJSON_GetObjectItem(j,key); if(cJSON_IsNumber(v)) cfg.field=(int)v->valuedouble; }
     #define GB(key, field) { cJSON *v=cJSON_GetObjectItem(j,key); if(cJSON_IsBool(v))   cfg.field=cJSON_IsTrue(v); }
     #define GS(key, field) { cJSON *v=cJSON_GetObjectItem(j,key); if(cJSON_IsString(v)&&v->valuestring) strncpy(cfg.field,v->valuestring,sizeof(cfg.field)-1); }
-    #define GRGB(key, arr) { cJSON *v=cJSON_GetObjectItem(j,key); if(cJSON_IsString(v)&&v->valuestring) hex_to_rgb(v->valuestring,arr); }
+    #define GRGB(key, arr) { cJSON *v=cJSON_GetObjectItem(j,key); if(cJSON_IsString(v)&&v->valuestring) hex_to_rgb(v->valuestring,cfg.arr); }
 
     // Zeitfenster-Array
     cJSON *tws = cJSON_GetObjectItem(j, "timeWindows");

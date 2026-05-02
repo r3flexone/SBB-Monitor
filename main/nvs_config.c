@@ -142,7 +142,7 @@ esp_err_t nvs_config_load(blink_config_t *cfg) {
     LI("oledInvMin",    oledInvertMin)
 
     // LED-Farben als blob (3 bytes je Farbe)
-    #define LRGB(key, arr) { size_t sz = 3; nvs_get_blob(h, key, arr, &sz); }
+    #define LRGB(key, arr) { size_t sz = 3; nvs_get_blob(h, key, cfg->arr, &sz); }
     LRGB("ledOk",       ledOkRgb)
     LRGB("ledDlySm",    ledDelaySmallRgb)
     LRGB("ledDlyBig",   ledDelayBigRgb)
@@ -186,7 +186,7 @@ esp_err_t nvs_config_save(const blink_config_t *cfg) {
     #define SI(key, field) nvs_set_i32(h, key, (int32_t)cfg->field);
     #define SB(key, field) nvs_set_u8(h,  key, (uint8_t)cfg->field);
     #define SS(key, field) nvs_set_str(h, key, cfg->field);
-    #define SRGB(key, arr) nvs_set_blob(h, key, arr, 3);
+    #define SRGB(key, arr) nvs_set_blob(h, key, cfg->arr, 3);
 
     // Zeitfenster
     SI("twCount",       timeWindowCount)
