@@ -98,7 +98,7 @@ esp_err_t nvs_config_load(blink_config_t *cfg) {
 
     // Zeitfenster-Einträge
     for (int i = 0; i < cfg->timeWindowCount; i++) {
-        char key[12];
+        char key[16];
         snprintf(key, sizeof(key), "tw%d_sh", i); LI(key, timeWindows[i].startH)
         snprintf(key, sizeof(key), "tw%d_sm", i); LI(key, timeWindows[i].startM)
         snprintf(key, sizeof(key), "tw%d_eh", i); LI(key, timeWindows[i].endH)
@@ -122,7 +122,7 @@ esp_err_t nvs_config_load(blink_config_t *cfg) {
     if (cfg->destFilterCount < 0) cfg->destFilterCount = 0;
     if (cfg->destFilterCount > 4) cfg->destFilterCount = 4;
     for (int i = 0; i < cfg->destFilterCount; i++) {
-        char key[10];
+        char key[16];
         snprintf(key, sizeof(key), "filt%d", i);
         len = sizeof(cfg->destFilters[i]);
         nvs_get_str(h, key, cfg->destFilters[i], &len);
@@ -191,7 +191,7 @@ esp_err_t nvs_config_save(const blink_config_t *cfg) {
     // Zeitfenster
     SI("twCount",       timeWindowCount)
     for (int i = 0; i < 8; i++) {
-        char key[12];
+        char key[16];
         snprintf(key, sizeof(key), "tw%d_sh", i); SI(key, timeWindows[i].startH)
         snprintf(key, sizeof(key), "tw%d_sm", i); SI(key, timeWindows[i].startM)
         snprintf(key, sizeof(key), "tw%d_eh", i); SI(key, timeWindows[i].endH)
@@ -213,7 +213,7 @@ esp_err_t nvs_config_save(const blink_config_t *cfg) {
     // Ziel-Filter
     SI("filtCount",     destFilterCount)
     for (int i = 0; i < 4; i++) {
-        char key[10];
+        char key[16];
         snprintf(key, sizeof(key), "filt%d", i);
         nvs_set_str(h, key, cfg->destFilters[i]);
     }
