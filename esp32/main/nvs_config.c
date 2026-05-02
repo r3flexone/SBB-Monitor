@@ -35,6 +35,7 @@ void nvs_config_defaults(blink_config_t *cfg) {
     cfg->sleepFallbackS     = 300;
     cfg->sleepAfterS        = 300;
     cfg->sleepMaxMin        = 120;
+    cfg->weekendSleepMaxMin = 1440;  // 24h — wacht Sa/So nicht alle 2h auf
 
     // Hardware
     cfg->ledGpio            = 48;
@@ -133,6 +134,7 @@ esp_err_t nvs_config_load(blink_config_t *cfg) {
     LI("sleepFbS",      sleepFallbackS)
     LI("sleepAfterS",   sleepAfterS)
     LI("sleepMaxMin",   sleepMaxMin)
+    LI("weSleepMax",    weekendSleepMaxMin)
 
     // Hardware
     LI("ledGpio",       ledGpio)
@@ -223,6 +225,7 @@ esp_err_t nvs_config_save(const blink_config_t *cfg) {
     SI("sleepFbS",      sleepFallbackS)
     SI("sleepAfterS",   sleepAfterS)
     SI("sleepMaxMin",   sleepMaxMin)
+    SI("weSleepMax",    weekendSleepMaxMin)
 
     // Hardware
     SI("ledGpio",       ledGpio)

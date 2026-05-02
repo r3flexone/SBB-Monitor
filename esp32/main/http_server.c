@@ -88,6 +88,7 @@ static esp_err_t handler_config_get(httpd_req_t *req) {
     cJSON_AddNumberToObject(j, "sleepFallbackS", cfg.sleepFallbackS);
     cJSON_AddNumberToObject(j, "sleepAfterS",    cfg.sleepAfterS);
     cJSON_AddNumberToObject(j, "sleepMaxMin",    cfg.sleepMaxMin);
+    cJSON_AddNumberToObject(j, "weekendSleepMaxMin", cfg.weekendSleepMaxMin);
 
     // Hardware
     cJSON_AddNumberToObject(j, "ledGpio",     cfg.ledGpio);
@@ -205,10 +206,11 @@ static esp_err_t handler_config_post(httpd_req_t *req) {
     }
 
     // Schlaf
-    GB("sleepEnabled",   sleepEnabled)
-    GI("sleepFallbackS", sleepFallbackS)
-    GI("sleepAfterS",    sleepAfterS)
-    GI("sleepMaxMin",    sleepMaxMin)
+    GB("sleepEnabled",       sleepEnabled)
+    GI("sleepFallbackS",     sleepFallbackS)
+    GI("sleepAfterS",        sleepAfterS)
+    GI("sleepMaxMin",        sleepMaxMin)
+    GI("weekendSleepMaxMin", weekendSleepMaxMin)
 
     // Hardware
     GI("ledGpio",      ledGpio)
