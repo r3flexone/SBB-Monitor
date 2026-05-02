@@ -39,7 +39,12 @@ typedef struct {
     int  sleepFallbackS;
     int  sleepAfterS;
     int  sleepMaxMin;
-    int  weekendSleepMaxMin;         // Max. Schlafdauer am Wochenende (min), 0 = bis Montag-Fenster
+    int  weekendStartDay;            // Wochenend-Schlaf ab Wochentag (0=So,1=Mo,...,5=Fr,6=Sa)
+    int  weekendStartH;              // Startzeit Stunde
+    int  weekendStartM;              // Startzeit Minute
+    int  weekendEndDay;              // Wochenend-Schlaf bis Wochentag
+    int  weekendEndH;                // Endzeit Stunde
+    int  weekendEndM;                // Endzeit Minute
 
     // --- Hardware ---
     int  ledGpio;

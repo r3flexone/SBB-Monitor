@@ -87,8 +87,13 @@ static esp_err_t handler_config_get(httpd_req_t *req) {
     cJSON_AddBoolToObject(j,   "sleepEnabled",   cfg.sleepEnabled);
     cJSON_AddNumberToObject(j, "sleepFallbackS", cfg.sleepFallbackS);
     cJSON_AddNumberToObject(j, "sleepAfterS",    cfg.sleepAfterS);
-    cJSON_AddNumberToObject(j, "sleepMaxMin",    cfg.sleepMaxMin);
-    cJSON_AddNumberToObject(j, "weekendSleepMaxMin", cfg.weekendSleepMaxMin);
+    cJSON_AddNumberToObject(j, "sleepMaxMin",      cfg.sleepMaxMin);
+    cJSON_AddNumberToObject(j, "weekendStartDay",  cfg.weekendStartDay);
+    cJSON_AddNumberToObject(j, "weekendStartH",    cfg.weekendStartH);
+    cJSON_AddNumberToObject(j, "weekendStartM",    cfg.weekendStartM);
+    cJSON_AddNumberToObject(j, "weekendEndDay",    cfg.weekendEndDay);
+    cJSON_AddNumberToObject(j, "weekendEndH",      cfg.weekendEndH);
+    cJSON_AddNumberToObject(j, "weekendEndM",      cfg.weekendEndM);
 
     // Hardware
     cJSON_AddNumberToObject(j, "ledGpio",     cfg.ledGpio);
@@ -209,8 +214,13 @@ static esp_err_t handler_config_post(httpd_req_t *req) {
     GB("sleepEnabled",       sleepEnabled)
     GI("sleepFallbackS",     sleepFallbackS)
     GI("sleepAfterS",        sleepAfterS)
-    GI("sleepMaxMin",        sleepMaxMin)
-    GI("weekendSleepMaxMin", weekendSleepMaxMin)
+    GI("sleepMaxMin",       sleepMaxMin)
+    GI("weekendStartDay",   weekendStartDay)
+    GI("weekendStartH",     weekendStartH)
+    GI("weekendStartM",     weekendStartM)
+    GI("weekendEndDay",     weekendEndDay)
+    GI("weekendEndH",       weekendEndH)
+    GI("weekendEndM",       weekendEndM)
 
     // Hardware
     GI("ledGpio",      ledGpio)
