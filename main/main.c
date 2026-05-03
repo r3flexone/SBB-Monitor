@@ -505,13 +505,16 @@ void app_main(void) {
 
     bool inverted = false;
     bool force_sleep = false;
+    // sleepEnabled=false: Schleife läuft unbegrenzt (bis Button-Sleep oder Sleep wird aktiviert)
+    bool run_forever = !cfg.sleepEnabled && !in_window && !woken_by_button;
     TickType_t next_invert = xTaskGetTickCount() +
         pdMS_TO_TICKS((uint32_t)(cfg.oledInvertMin > 0 ? cfg.oledInvertMin : 1440) * 60 * 1000);
 
-    while (xTaskGetTickCount() < active_end) {
+    while (!force_sleep && (run_forever || xTaskGetTickCount() < active_end)) {
         if (g_cfg_dirty) {
             nvs_config_load(&cfg);
             g_cfg_dirty = false;
+            run_forever = !cfg.sleepEnabled && !in_window && !woken_by_button;
             for (int i = 0; i < 4; i++)
                 filter_ptrs[i] = (i < cfg.destFilterCount) ? cfg.destFilters[i] : NULL;
             ESP_LOGI(TAG, "Config neu geladen (Web-Panel)");
@@ -644,10 +647,6 @@ void app_main(void) {
 
     if (inverted) oled_cmd(0xA6);
     http_server_stop();
-    if (!force_sleep && !cfg.sleepEnabled) {
-        ESP_LOGI(TAG, "sleepEnabled=false → Neustart");
-        esp_restart();
-    }
     show_sleep_info(5);
     go_to_sleep(5ULL * 60 * 1000000ULL);
 }
