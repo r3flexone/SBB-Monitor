@@ -9,8 +9,7 @@ ESP32-S3 SBB (Swiss Federal Railways) Departure Monitor. The device:
 - Fetches the next departures for a configured station from `transport.opendata.ch`.
 - Displays them on an SSD1306 128×64 I2C OLED and signals overall status via a WS2812 NeoPixel (worst-of-4 rule).
 - Returns to deep sleep to minimise battery usage.
-
-The `README.md` in the repo root is stale — it is the unmodified ESP-IDF `blink` example README. Do not use it as a source of truth; the project has been fully repurposed.
+- Serves a web configuration panel at `http://sbb-monitor.local` while active.
 
 ## Build / flash / monitor
 
@@ -25,28 +24,34 @@ idf.py build
 idf.py -p PORT flash monitor               # Ctrl-] to exit monitor
 ```
 
-There is no linter or test harness. `pytest_blink.py` is leftover from the blink example and is not used.
+On first flash or after partition table changes: `idf.py fullclean` before build.
+
+There is no linter or test harness.
 
 ## Git workflow
 
-Active development branch is `claude/esp32-sbb-monitor-8qfn3` (push/pull here, not `main`). User-facing configuration values in `main/main.c` (STATION, DEST_FILTERS, time window, etc.) are *user-owned* — they may be changed on the remote between sessions, so rebase before committing and do not revert personal settings.
+Develop on the active feature branch, not `main`. User-facing configuration values (station, filters, time windows, etc.) are managed via NVS and the web panel — do not hardcode them in source. If editing `main.c` defaults in `nvs_config.c`, avoid overwriting values the user may have customised.
 
 ## Architecture
 
-All application code lives in `main/`. There are only three source files you should touch:
+All application code lives in `main/`. Source files:
 
-- **`main/main.c`** — user config, hardware drivers, and the active-window main loop.
-- **`main/sbb.c` / `sbb.h`** — WiFi, HTTP, JSON parsing, filter logic. The public API is just `sbb_wifi_init()` and `sbb_get_departures()`.
+- **`main/main.c`** — hardware drivers and the active-window main loop.
+- **`main/sbb.c` / `sbb.h`** — WiFi, HTTP, JSON parsing, filter logic. Public API: `sbb_wifi_init()` and `sbb_get_departures()`.
+- **`main/nvs_config.c` / `nvs_config.h`** — all configuration in NVS. `blink_config_t` is the central struct. Defaults in `nvs_config_defaults()`.
+- **`main/http_server.c` / `http_server.h`** — web panel (SPIFFS + `/api/config` GET/POST). Sets `g_cfg_dirty = true` after save so the main loop reloads cfg.
+- **`main/spiffs/index.html`** — web panel UI, flashed to SPIFFS.
 - **`main/cJSON.c` / `cJSON.h`** — vendored JSON library, do not modify.
 
-`main/Kconfig.projbuild` and the `CONFIG_BLINK_*` defaults in `sdkconfig.defaults*` are leftovers from the blink example. They are unused by the current code; don't rely on them.
+### Configuration
 
-### Config-first design (`main/main.c`)
+All tunables live in `blink_config_t` (`nvs_config.h`). They are:
+- Loaded from NVS at startup via `nvs_config_load()`.
+- Editable at runtime via `http://sbb-monitor.local` while the device is active.
+- Persisted to NVS on save; survive deep sleep and reboots.
+- `secrets.h` (`WIFI_SSID` / `WIFI_PASS`) is a compile-time fallback if NVS has no credentials.
 
-The top of `main.c` (between the two `====` banner comments) is the **single user-facing configuration block**. When adding a new tunable (colour, threshold, interval), put its `#define` there, not next to the logic that consumes it. Current blocks are:
-- `EINSTELLUNGEN` — station, destination filters, active time window, button duration, weekday-only flag, burn-in, API retry, stale-data age, adaptive refresh thresholds.
-- `LED-FARBEN` — all LED colours as `R, G, B` triples consumed by `led_set(...)` via macro expansion (not functions), plus the delay-tier minute thresholds.
-- `HARDWARE` — pin assignments. Only change for different wiring.
+When adding a new tunable: add the field to `blink_config_t`, set a default in `nvs_config_defaults()`, add NVS load/save with a key ≤ 15 chars, and add the field to `handler_config_get()` and `handler_config_post()` in `http_server.c`.
 
 ### Wake-up and sleep flow (`app_main` in `main.c`)
 
@@ -54,31 +59,33 @@ The top of `main.c` (between the two `====` banner comments) is the **single use
 2. Init LED and OLED, set TZ (`CET-1CEST,M3.5.0,M10.5.0/3`).
 3. `time()` + `localtime_r()` — the ESP32 RTC keeps time across deep sleep, so NTP is only re-run if `tm_year < 100` (no valid time yet).
 4. Compute `in_window = time_valid && !weekend_skip && inside_active_time`.
-5. **If not in window and not woken by button → sleep again** for `min(start_min - cur_min, 120)` minutes. The 2 h cap ensures we re-check periodically even on weekends.
-6. Otherwise run the active loop until `active_end` (end of time window, or `BUTTON_ACTIVE_MIN` minutes if button-woken).
+5. **If not in window and not woken by button → sleep.** In the weekend window (`weekdaysOnly = true`): sleep directly until `weekendEnd`. Otherwise: sleep until next window start, capped at `sleepMaxMin`.
+6. Otherwise run the active loop until `active_end` (end of time window, or button active duration).
 7. After the loop, `go_to_sleep(5 min)` as fallback.
 
 ### Active-loop responsibilities
 
 One `while (xTaskGetTickCount() < active_end)` iteration does:
-1. Retry-fetch departures (`API_RETRY_COUNT` attempts, `API_RETRY_DELAY_MS` apart).
-2. If success → update in-RAM cache (`last_deps`, `cached_time`). If failure → show cached data with a `!` prefix if `< STALE_MAX_MIN` old.
-3. LED: **worst status across all 4 valid, non-cancelled departures** (Ausfall > big delay > small delay > OK).
-4. Render via `display_departures()` which in turn calls `draw_header()` (station name + clock).
-5. Compute minutes to next non-cancelled future train → tiered `refresh_sec` (`REFRESH_NEAR/MID/FAR/VERYFAR`).
-6. Inner wait loop (`vTaskDelay(100)`) handles: LED blink while in error state, OLED invert every `OLED_INVERT_MIN` minutes (burn-in protection), and re-rendering every 30 s so the header clock stays fresh.
+1. Reload `cfg` from NVS if `g_cfg_dirty` is set (after web panel save).
+2. Retry-fetch departures (`cfg.apiRetryCount` attempts, `cfg.apiRetryDelayS` apart).
+3. If success → update in-RAM cache (`last_deps`, `cached_time`). If failure → show cached data with `!` prefix if `< cfg.staleMaxMin` minutes old.
+4. LED: **worst status across all 4 valid, non-cancelled departures** (Ausfall > big delay > small delay > OK).
+5. Render via `display_departures()` which in turn calls `draw_header()` (station name + clock).
+6. Compute minutes to next non-cancelled future train → tiered `refresh_sec`.
+7. Inner wait loop handles: LED blink in error state, OLED invert for burn-in protection, re-render every 30 s.
 
 ### Stack and memory gotchas
 
-- The main task's default stack (≈3584 bytes) is tight. Two `SbbDeparture[4]` arrays (cache + current) plus `sbb_get_departures()`'s ~1800-byte stack frame will overflow it. Both arrays are `static` inside `app_main` — keep them static, and be cautious when adding more local arrays.
+- The main task's default stack is tight. Both `SbbDeparture[4]` arrays (cache + current) are `static` inside `app_main` — keep them static, and be cautious when adding large locals.
 - `http_buf` in `sbb.c` is a 32 KB heap buffer, allocated lazily on first call and reused.
 - The URL buffer is `char url[512]` — large enough for the full URL with the optional `passList` field. Don't shrink it.
+- NVS keys must be ≤ 15 characters (ESP-IDF limit).
 
 ### `sbb_get_departures()` contract
 
 Signature: `bool sbb_get_departures(const char *station, SbbDeparture results[4], const char *dest_filters[], int filter_count)`.
 
-- **Count-based, not NULL-terminated.** `filter_count = 0` disables filtering entirely. `sizeof(arr)/sizeof(arr[0])` at the call site is the intended pattern.
+- **Count-based, not NULL-terminated.** `filter_count = 0` disables filtering entirely.
 - Station name is URL-encoded inside (space → `%20`), so callers pass the canonical name as it appears on sbb.ch (e.g. `"Basel SBB"`).
 - Filter matches both the end destination (`to`) and intermediate stops (`passList/station/name`), case-insensitive substring. The `passList` field is requested from the API **only when `filter_count > 0`** to save bandwidth.
 - Results are chosen to start at the first departure ≥ current HH:MM; if fewer than 4 future trains are available, the window backs up and some `results[i]` may have `valid = false`.
