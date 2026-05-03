@@ -126,6 +126,14 @@ static esp_err_t handler_config_get(httpd_req_t *req) {
     // Verhalten
     cJSON_AddBoolToObject(j, "weekdaysOnly", cfg.weekdaysOnly);
 
+    // Wochenend-Schlaf-Fenster
+    cJSON_AddNumberToObject(j, "weekendStartDay", cfg.weekendStartDay);
+    cJSON_AddNumberToObject(j, "weekendStartH",   cfg.weekendStartH);
+    cJSON_AddNumberToObject(j, "weekendStartM",   cfg.weekendStartM);
+    cJSON_AddNumberToObject(j, "weekendEndDay",   cfg.weekendEndDay);
+    cJSON_AddNumberToObject(j, "weekendEndH",     cfg.weekendEndH);
+    cJSON_AddNumberToObject(j, "weekendEndM",     cfg.weekendEndM);
+
     char *body = cJSON_PrintUnformatted(j);
     cJSON_Delete(j);
 
@@ -157,7 +165,7 @@ static esp_err_t handler_config_post(httpd_req_t *req) {
 
     #define GI(key, field) { cJSON *v=cJSON_GetObjectItem(j,key); if(cJSON_IsNumber(v)) cfg.field=(int)v->valuedouble; }
     #define GB(key, field) { cJSON *v=cJSON_GetObjectItem(j,key); if(cJSON_IsBool(v))   cfg.field=cJSON_IsTrue(v); }
-    #define GS(key, field) { cJSON *v=cJSON_GetObjectItem(j,key); if(cJSON_IsString(v)&&v->valuestring) strncpy(cfg.field,v->valuestring,sizeof(cfg.field)-1); }
+    #define GS(key, field) { cJSON *v=cJSON_GetObjectItem(j,key); if(cJSON_IsString(v)&&v->valuestring) { strncpy(cfg.field,v->valuestring,sizeof(cfg.field)-1); cfg.field[sizeof(cfg.field)-1]='\0'; } }
     #define GRGB(key, arr) { cJSON *v=cJSON_GetObjectItem(j,key); if(cJSON_IsString(v)&&v->valuestring) hex_to_rgb(v->valuestring,cfg.arr); }
 
     // Zeitfenster-Array
@@ -199,8 +207,10 @@ static esp_err_t handler_config_post(httpd_req_t *req) {
         cfg.destFilterCount = cnt;
         for (int i = 0; i < cnt; i++) {
             cJSON *f = cJSON_GetArrayItem(filters, i);
-            if (cJSON_IsString(f) && f->valuestring)
+            if (cJSON_IsString(f) && f->valuestring) {
                 strncpy(cfg.destFilters[i], f->valuestring, sizeof(cfg.destFilters[i]) - 1);
+                cfg.destFilters[i][sizeof(cfg.destFilters[i]) - 1] = '\0';
+            }
         }
     }
 
@@ -245,6 +255,14 @@ static esp_err_t handler_config_post(httpd_req_t *req) {
 
     // Verhalten
     GB("weekdaysOnly", weekdaysOnly)
+
+    // Wochenend-Schlaf-Fenster
+    GI("weekendStartDay", weekendStartDay)
+    GI("weekendStartH",   weekendStartH)
+    GI("weekendStartM",   weekendStartM)
+    GI("weekendEndDay",   weekendEndDay)
+    GI("weekendEndH",     weekendEndH)
+    GI("weekendEndM",     weekendEndM)
 
     cJSON_Delete(j);
 

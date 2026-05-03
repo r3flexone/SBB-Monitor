@@ -433,7 +433,7 @@ void app_main(void) {
                 int end_abs = cfg.weekendEndDay * 24 * 60 + cfg.weekendEndH * 60 + cfg.weekendEndM;
                 int cur_abs = ti.tm_wday * 24 * 60 + cur_min;
                 int d_weekend = end_abs - cur_abs;
-                if (d_weekend <= 0) d_weekend += 7 * 24 * 60;
+                if (d_weekend < 0) d_weekend += 7 * 24 * 60;
                 d = d_weekend;
                 ESP_LOGI(TAG, "Wochenend-Fenster: schlafe %d Min", d);
             } else {

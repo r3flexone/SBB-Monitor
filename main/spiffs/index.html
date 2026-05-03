@@ -136,9 +136,9 @@ input[type=color]{width:36px;height:28px;padding:2px;border-radius:4px;border:1p
         </div>
         <div class="card">
           <div class="card-head"><div><div class="card-title">Tastendruck</div><div class="card-desc">Manuell per Button aktivieren</div></div></div>
-          <div class="field"><div class="field-meta"><div class="field-label">Kurzdruck — Aktiv-Dauer</div><div class="field-hint">buttonActiveMin</div></div><div class="field-ctrl"><input type="number" class="sm" id="buttonActiveMin" value="10"><span class="unit">min</span></div></div>
-          <div class="field"><div class="field-meta"><div class="field-label">Long-Press Schwelle</div><div class="field-hint">buttonLongPressMs</div></div><div class="field-ctrl"><input type="number" class="sm" id="buttonLongPressMs" value="3000"><span class="unit">ms</span></div></div>
-          <div class="field"><div class="field-meta"><div class="field-label">Long-Press Dauer</div><div class="field-hint">buttonLongActiveMin</div></div><div class="field-ctrl"><input type="number" class="sm" id="buttonLongActiveMin" value="10"><span class="unit">min</span></div></div>
+          <div class="field"><div class="field-meta"><div class="field-label">Kurzdruck — Aktiv-Dauer</div><div class="field-hint">Wie lange bleibt das Gerät nach kurzem Druck aktiv</div></div><div class="field-ctrl"><input type="number" class="sm" id="buttonActiveMin" value="10" min="1" max="120"><span class="unit">min</span></div></div>
+          <div class="field"><div class="field-meta"><div class="field-label">Long-Press Schwelle</div><div class="field-hint">Ab wann gilt ein Druck als "lang"</div></div><div class="field-ctrl"><input type="number" class="sm" id="buttonLongPressMs" value="3000" min="500" max="10000"><span class="unit">ms</span></div></div>
+          <div class="field"><div class="field-meta"><div class="field-label">Long-Press Dauer</div><div class="field-hint">Aktiv-Zeit nach langem Tastendruck</div></div><div class="field-ctrl"><input type="number" class="sm" id="buttonLongActiveMin" value="10" min="1" max="120"><span class="unit">min</span></div></div>
         </div>
       </div>
 
@@ -152,7 +152,7 @@ input[type=color]{width:36px;height:28px;padding:2px;border-radius:4px;border:1p
         </div>
         <div class="card">
           <div class="card-head"><div class="card-title">NTP</div></div>
-          <div class="field"><div class="field-meta"><div class="field-label">NTP Timeout</div><div class="field-hint">ntpTimeoutS · pool.ntp.org</div></div><div class="field-ctrl"><input type="number" class="sm" id="ntpTimeoutS" value="5"><span class="unit">s</span></div></div>
+          <div class="field"><div class="field-meta"><div class="field-label">NTP Timeout</div><div class="field-hint">Maximale Wartezeit für Zeitsynchronisation (pool.ntp.org)</div></div><div class="field-ctrl"><input type="number" class="sm" id="ntpTimeoutS" value="5" min="1" max="30"><span class="unit">s</span></div></div>
           <div class="field"><div class="field-meta"><div class="field-label">Verbindung testen</div><div class="field-hint" id="ntp-txt">Nicht getestet</div></div><div class="field-ctrl"><span id="ntp-dot" style="width:7px;height:7px;border-radius:50%;background:#64748B;display:inline-block"></span><button class="btn btn-secondary btn-sm" onclick="testNtp()">Testen</button></div></div>
         </div>
       </div>
@@ -163,11 +163,11 @@ input[type=color]{width:36px;height:28px;padding:2px;border-radius:4px;border:1p
         <div class="card">
           <div class="card-head"><div class="card-title">Tiefschlaf</div></div>
           <div class="field"><div class="field-meta"><div class="field-label">Schlaf aktiviert</div><div class="field-hint">Gerät schläft außerhalb der Zeitfenster</div></div><div class="field-ctrl"><button class="toggle on" id="toggle-sleep" onclick="tog('sleep')"></button><span class="toggle-lbl" id="lbl-sleep">An</span></div></div>
-          <div class="field"><div class="field-meta"><div class="field-label">Fallback-Schlafdauer</div><div class="field-hint">sleepFallbackS · ohne NTP-Sync</div></div><div class="field-ctrl"><input type="number" class="sm" id="sleepFallbackS" value="300"><span class="unit">s</span></div></div>
-          <div class="field"><div class="field-meta"><div class="field-label">Schlaf nach Fenster</div><div class="field-hint">sleepAfterS · nach Ende des Zeitfensters</div></div><div class="field-ctrl"><input type="number" class="sm" id="sleepAfterS" value="300"><span class="unit">s</span></div></div>
-          <div class="field"><div class="field-meta"><div class="field-label">Max. Schlafdauer (Wochentag)</div><div class="field-hint">sleepMaxMin · danach re-check ob Zeitfenster aktiv</div></div><div class="field-ctrl"><input type="number" class="sm" id="sleepMaxMin" value="120"><span class="unit">min</span></div></div>
-          <div class="field"><div class="field-meta"><div class="field-label">Wochenend-Schlaf von</div><div class="field-hint">weekendStartDay/H/M · ab wann Wochenend-Modus</div></div><div class="field-ctrl"><select id="weekendStartDay" style="background:#0C0F14;border:1px solid #3D4F6E;border-radius:4px;color:#E2E8F0;font-size:13px;padding:6px 8px;font-family:'IBM Plex Mono',monospace;outline:none"><option value="1">Mo</option><option value="2">Di</option><option value="3">Mi</option><option value="4">Do</option><option value="5" selected>Fr</option><option value="6">Sa</option><option value="0">So</option></select><div class="time-wrap"><input type="number" class="xs" id="weekendStartH" min="0" max="23" value="18"><span class="time-sep">:</span><input type="number" class="xs" id="weekendStartM" min="0" max="59" value="0"></div><span class="unit">Uhr</span></div></div>
-          <div class="field"><div class="field-meta"><div class="field-label">Wochenend-Schlaf bis</div><div class="field-hint">weekendEndDay/H/M · wann wieder aufwachen</div></div><div class="field-ctrl"><select id="weekendEndDay" style="background:#0C0F14;border:1px solid #3D4F6E;border-radius:4px;color:#E2E8F0;font-size:13px;padding:6px 8px;font-family:'IBM Plex Mono',monospace;outline:none"><option value="1" selected>Mo</option><option value="2">Di</option><option value="3">Mi</option><option value="4">Do</option><option value="5">Fr</option><option value="6">Sa</option><option value="0">So</option></select><div class="time-wrap"><input type="number" class="xs" id="weekendEndH" min="0" max="23" value="5"><span class="time-sep">:</span><input type="number" class="xs" id="weekendEndM" min="0" max="59" value="0"></div><span class="unit">Uhr</span></div></div>
+          <div class="field"><div class="field-meta"><div class="field-label">Fallback-Schlafdauer</div><div class="field-hint">Schlafdauer wenn keine Zeitsynch möglich (kein WLAN)</div></div><div class="field-ctrl"><input type="number" class="sm" id="sleepFallbackS" value="300" min="60" max="3600"><span class="unit">s</span></div></div>
+          <div class="field"><div class="field-meta"><div class="field-label">Schlaf nach Fenster</div><div class="field-hint">Verzögerung bevor das Gerät nach dem Zeitfenster schläft</div></div><div class="field-ctrl"><input type="number" class="sm" id="sleepAfterS" value="300" min="0" max="3600"><span class="unit">s</span></div></div>
+          <div class="field"><div class="field-meta"><div class="field-label">Max. Schlafdauer (Wochentag)</div><div class="field-hint">Sicherheitslimit — Gerät wacht spätestens nach X min auf</div></div><div class="field-ctrl"><input type="number" class="sm" id="sleepMaxMin" value="120" min="5" max="720"><span class="unit">min</span></div></div>
+          <div class="field"><div class="field-meta"><div class="field-label">Wochenend-Schlaf ab</div><div class="field-hint">Ab diesem Zeitpunkt schläft das Gerät bis zum Weckzeitpunkt</div></div><div class="field-ctrl"><select id="weekendStartDay" style="background:#0C0F14;border:1px solid #3D4F6E;border-radius:4px;color:#E2E8F0;font-size:13px;padding:6px 8px;font-family:'IBM Plex Mono',monospace;outline:none"><option value="1">Mo</option><option value="2">Di</option><option value="3">Mi</option><option value="4">Do</option><option value="5" selected>Fr</option><option value="6">Sa</option><option value="0">So</option></select><div class="time-wrap"><input type="number" class="xs" id="weekendStartH" min="0" max="23" value="18"><span class="time-sep">:</span><input type="number" class="xs" id="weekendStartM" min="0" max="59" value="0"></div><span class="unit">Uhr</span></div></div>
+          <div class="field"><div class="field-meta"><div class="field-label">Wochenend-Schlaf bis</div><div class="field-hint">Ab diesem Zeitpunkt wird das Gerät wieder normal aktiv</div></div><div class="field-ctrl"><select id="weekendEndDay" style="background:#0C0F14;border:1px solid #3D4F6E;border-radius:4px;color:#E2E8F0;font-size:13px;padding:6px 8px;font-family:'IBM Plex Mono',monospace;outline:none"><option value="1" selected>Mo</option><option value="2">Di</option><option value="3">Mi</option><option value="4">Do</option><option value="5">Fr</option><option value="6">Sa</option><option value="0">So</option></select><div class="time-wrap"><input type="number" class="xs" id="weekendEndH" min="0" max="23" value="5"><span class="time-sep">:</span><input type="number" class="xs" id="weekendEndM" min="0" max="59" value="0"></div><span class="unit">Uhr</span></div></div>
         </div>
         <div class="card">
           <div class="card-head"><div class="card-title">Schlaf-Vorschau</div></div>
@@ -206,7 +206,7 @@ input[type=color]{width:36px;height:28px;padding:2px;border-radius:4px;border:1p
         </div>
         <div class="card">
           <div class="card-head"><div class="card-title">Fehler-Blinken</div></div>
-          <div class="field"><div class="field-meta"><div class="field-label">Fehler-Blinken</div><div class="field-hint">ledErrorBlinkMs · 0 = dauerhaft an (kein Blinken)</div></div><div class="field-ctrl"><input type="number" class="sm" id="ledErrorBlinkMs" value="500"><span class="unit">ms</span></div></div>
+          <div class="field"><div class="field-meta"><div class="field-label">Fehler-Blinken</div><div class="field-hint">Blink-Periode bei Verbindungsfehler (0 = dauerhaft Rot)</div></div><div class="field-ctrl"><input type="number" class="sm" id="ledErrorBlinkMs" value="500" min="0" max="5000"><span class="unit">ms</span></div></div>
         </div>
         <div class="card">
           <div class="card-head"><div class="card-title">Vorschau</div></div>
@@ -246,13 +246,13 @@ input[type=color]{width:36px;height:28px;padding:2px;border-radius:4px;border:1p
         <div class="section-head"><div class="section-title">⚙️ Verhalten</div><div class="section-desc">Logik-Schwellen, OLED Burn-in, Wochentage</div></div>
         <div class="card">
           <div class="card-head"><div class="card-title">Verspätungs-Schwellen</div><div class="card-desc">Wann wechselt die LED-Farbe?</div></div>
-          <div class="field"><div class="field-meta"><div class="field-label">Leicht verspätet ab</div><div class="field-hint">delaySmallMin → Cyan-LED</div></div><div class="field-ctrl"><input type="number" class="xs" id="delaySmallMin" value="2"><span class="unit">min</span></div></div>
-          <div class="field"><div class="field-meta"><div class="field-label">Stark verspätet ab</div><div class="field-hint">delayBigMin → Lila-LED</div></div><div class="field-ctrl"><input type="number" class="xs" id="delayBigMin" value="6"><span class="unit">min</span></div></div>
+          <div class="field"><div class="field-meta"><div class="field-label">Leicht verspätet ab</div><div class="field-hint">Ab dieser Verspätung leuchtet die LED Cyan</div></div><div class="field-ctrl"><input type="number" class="xs" id="delaySmallMin" value="2" min="1" max="30"><span class="unit">min</span></div></div>
+          <div class="field"><div class="field-meta"><div class="field-label">Stark verspätet ab</div><div class="field-hint">Ab dieser Verspätung leuchtet die LED Lila (muss > leicht)</div></div><div class="field-ctrl"><input type="number" class="xs" id="delayBigMin" value="6" min="1" max="60"><span class="unit">min</span></div></div>
         </div>
         <div class="card">
           <div class="card-head"><div class="card-title">Anzeige</div></div>
-          <div class="field"><div class="field-meta"><div class="field-label">Nur Wochentage</div><div class="field-hint">weekdaysOnly · Mo–Fr</div></div><div class="field-ctrl"><button class="toggle on" id="toggle-wdonly" onclick="tog('wdonly')"></button><span class="toggle-lbl" id="lbl-wdonly">An</span></div></div>
-          <div class="field"><div class="field-meta"><div class="field-label">OLED Invert-Intervall</div><div class="field-hint">oledInvertMin · Burn-in Schutz, 0 = deaktiviert</div></div><div class="field-ctrl"><input type="number" class="sm" id="oledInvertMin" value="5"><span class="unit">min</span></div></div>
+          <div class="field"><div class="field-meta"><div class="field-label">Nur Wochentage</div><div class="field-hint">Wochenende überspringen (Sa/So kein normales Zeitfenster)</div></div><div class="field-ctrl"><button class="toggle on" id="toggle-wdonly" onclick="tog('wdonly')"></button><span class="toggle-lbl" id="lbl-wdonly">An</span></div></div>
+          <div class="field"><div class="field-meta"><div class="field-label">OLED Invert-Intervall</div><div class="field-hint">Display periodisch invertieren zum Schutz vor Einbrennen (0 = aus)</div></div><div class="field-ctrl"><input type="number" class="sm" id="oledInvertMin" value="5" min="0" max="60"><span class="unit">min</span></div></div>
         </div>
       </div>
 
@@ -265,9 +265,9 @@ input[type=color]{width:36px;height:28px;padding:2px;border-radius:4px;border:1p
         </div>
         <div class="card">
           <div class="card-head"><div class="card-title">I²C / OLED Display</div><div class="card-desc">SSD1306 · 128×64</div></div>
-          <div class="field"><div class="field-meta"><div class="field-label">SDA</div><div class="field-hint">I2C_SDA_GPIO</div></div><div class="field-ctrl"><span class="prefix">GPIO_</span><input type="number" class="xs" id="sdaGpio" value="4"></div></div>
-          <div class="field"><div class="field-meta"><div class="field-label">SCL</div><div class="field-hint">I2C_SCL_GPIO</div></div><div class="field-ctrl"><span class="prefix">GPIO_</span><input type="number" class="xs" id="sclGpio" value="5"></div></div>
-          <div class="field"><div class="field-meta"><div class="field-label">I²C Adresse</div><div class="field-hint">OLED_ADDR</div></div><div class="field-ctrl"><input type="text" class="sm" id="oledAddr" value="0x3C"></div></div>
+          <div class="field"><div class="field-meta"><div class="field-label">SDA</div><div class="field-hint">I²C Datenleitung</div></div><div class="field-ctrl"><span class="prefix">GPIO_</span><input type="number" class="xs" id="sdaGpio" value="4"></div></div>
+          <div class="field"><div class="field-meta"><div class="field-label">SCL</div><div class="field-hint">I²C Taktleitung</div></div><div class="field-ctrl"><span class="prefix">GPIO_</span><input type="number" class="xs" id="sclGpio" value="5"></div></div>
+          <div class="field"><div class="field-meta"><div class="field-label">I²C Adresse</div><div class="field-hint">Format: 0x3C oder 0x3D</div></div><div class="field-ctrl"><input type="text" class="sm" id="oledAddr" value="0x3C" pattern="0x[0-9A-Fa-f]{2}"></div></div>
         </div>
         <div class="card">
           <div class="card-head"><div class="card-title">Button</div></div>
@@ -511,6 +511,14 @@ function syncStatus() {
 
 // ===== SAVE =====
 async function saveConfig() {
+  // Validierung
+  const dsm = +document.getElementById('delaySmallMin').value;
+  const dbm = +document.getElementById('delayBigMin').value;
+  if (dsm >= dbm) {
+    alert('Fehler: "Leicht verspätet ab" muss kleiner sein als "Stark verspätet ab".');
+    return;
+  }
+
   // Ziel-Filter: nur nicht-leere
   const filters = [];
   for (let i = 0; i < 4; i++) {
