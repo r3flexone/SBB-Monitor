@@ -363,14 +363,16 @@ void app_main(void) {
         check_window_overlaps();
     }
 
+    // Button-GPIO immer konfigurieren (für Halt-Erkennung und Sleep-Taste)
+    gpio_config_t btn = {
+        .pin_bit_mask = 1ULL << cfg.buttonGpio,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+    };
+    gpio_config(&btn);
+
     int button_active_min = cfg.buttonActiveMin;
     if (woken_by_button) {
-        gpio_config_t btn = {
-            .pin_bit_mask = 1ULL << cfg.buttonGpio,
-            .mode = GPIO_MODE_INPUT,
-            .pull_up_en = GPIO_PULLUP_ENABLE,
-        };
-        gpio_config(&btn);
         int hold_ms = 0;
         while (gpio_get_level(cfg.buttonGpio) == 0 &&
                hold_ms < cfg.buttonLongPressMs + 1000) {
@@ -422,7 +424,7 @@ void app_main(void) {
         }
     }
 
-    if (!in_window && !woken_by_button) {
+    if (!in_window && !woken_by_button && cfg.sleepEnabled) {
         int d;
         if (time_valid) {
             d = 24 * 60;
@@ -502,6 +504,7 @@ void app_main(void) {
     time_t cached_time = 0;
 
     bool inverted = false;
+    bool force_sleep = false;
     TickType_t next_invert = xTaskGetTickCount() +
         pdMS_TO_TICKS((uint32_t)(cfg.oledInvertMin > 0 ? cfg.oledInvertMin : 1440) * 60 * 1000);
 
@@ -628,12 +631,23 @@ void app_main(void) {
                 flush_page7();
                 next_bar = t + pdMS_TO_TICKS(1000);
             }
+            // Button während aktivem Betrieb → sofort schlafen
+            if (gpio_get_level(cfg.buttonGpio) == 0) {
+                ESP_LOGI(TAG, "Button gedrückt → Schlaf");
+                force_sleep = true;
+                break;
+            }
             vTaskDelay(pdMS_TO_TICKS(100));
         }
+        if (force_sleep) break;
     }
 
     if (inverted) oled_cmd(0xA6);
     http_server_stop();
+    if (!force_sleep && !cfg.sleepEnabled) {
+        ESP_LOGI(TAG, "sleepEnabled=false → Neustart");
+        esp_restart();
+    }
     show_sleep_info(5);
     go_to_sleep(5ULL * 60 * 1000000ULL);
 }
