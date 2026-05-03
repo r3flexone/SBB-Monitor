@@ -17,12 +17,13 @@ static const char *TAG = "sbb";
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT      BIT1
 #define MAX_RETRY          5
-#define HTTP_BUF_SIZE      16384
+#define HTTP_BUF_SIZE      32768
 #define DEP_COUNT          4
 
 static EventGroupHandle_t wifi_event_group;
 static int retry_count = 0;
 static bool wifi_ready = false;
+static bool wifi_initialised = false;
 static char *http_buf = NULL;
 static int  http_buf_len = 0;
 
@@ -51,6 +52,12 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
 
 void sbb_wifi_init(const char *ssid, const char *password)
 {
+    if (wifi_initialised) {
+        ESP_LOGW(TAG, "WiFi schon initialisiert, skip");
+        return;
+    }
+    wifi_initialised = true;
+
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         nvs_flash_erase();
@@ -87,6 +94,20 @@ void sbb_wifi_init(const char *ssid, const char *password)
     else { ESP_LOGE(TAG, "WiFi Fehler!"); wifi_ready = false; }
 }
 
+bool sbb_wifi_reconnect(void)
+{
+    if (wifi_ready) return true;
+    if (!wifi_initialised) return false;
+    ESP_LOGI(TAG, "WiFi Reconnect...");
+    retry_count = 0;
+    xEventGroupClearBits(wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT);
+    esp_wifi_connect();
+    EventBits_t bits = xEventGroupWaitBits(wifi_event_group,
+                                           WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
+                                           pdFALSE, pdFALSE, pdMS_TO_TICKS(15000));
+    return (bits & WIFI_CONNECTED_BIT) != 0;
+}
+
 // ===== HTTP =====
 
 static esp_err_t http_event_handler(esp_http_client_event_t *evt)
@@ -107,9 +128,10 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
 static int time_to_minutes(const char *hhmm)
 {
     const char *t = strchr(hhmm, 'T');
-    int h, m;
-    if (t) sscanf(t + 1, "%d:%d", &h, &m);
-    else   sscanf(hhmm, "%d:%d", &h, &m);
+    int h = 0, m = 0;
+    int got = t ? sscanf(t + 1, "%d:%d", &h, &m)
+                : sscanf(hhmm, "%d:%d", &h, &m);
+    if (got != 2) return -1;
     return h * 60 + m;
 }
 
@@ -117,18 +139,44 @@ static void format_time(const char *iso, char out[6])
 {
     const char *t = strchr(iso, 'T');
     if (t) {
-        int h, m;
-        sscanf(t + 1, "%d:%d", &h, &m);
-        snprintf(out, 6, "%02d:%02d", h, m);
-    } else {
-        strncpy(out, iso, 5);
-        out[5] = 0;
+        int h = 0, m = 0;
+        if (sscanf(t + 1, "%d:%d", &h, &m) == 2) {
+            snprintf(out, 6, "%02d:%02d", h, m);
+            return;
+        }
     }
+    // Fallback: erste 5 Zeichen übernehmen
+    strncpy(out, iso, 5);
+    out[5] = 0;
+}
+
+// ===== Filter-Helper =====
+
+static bool str_contains_ci(const char *haystack, const char *needle)
+{
+    if (!haystack || !needle) return false;
+    size_t hlen = strlen(haystack);
+    size_t nlen = strlen(needle);
+    if (nlen == 0) return true;
+    if (nlen > hlen) return false;
+    for (size_t i = 0; i <= hlen - nlen; i++) {
+        bool match = true;
+        for (size_t j = 0; j < nlen; j++) {
+            char h = haystack[i + j];
+            char n = needle[j];
+            if (h >= 'a' && h <= 'z') h -= 32;
+            if (n >= 'a' && n <= 'z') n -= 32;
+            if (h != n) { match = false; break; }
+        }
+        if (match) return true;
+    }
+    return false;
 }
 
 // ===== Hauptfunktion =====
 
-bool sbb_get_departures(SbbDeparture results[DEP_COUNT])
+bool sbb_get_departures(const char *station, SbbDeparture results[DEP_COUNT],
+                        const char *dest_filters[], int filter_count)
 {
     if (!wifi_ready) { ESP_LOGE(TAG, "WiFi nicht bereit!"); return false; }
 
@@ -139,18 +187,35 @@ bool sbb_get_departures(SbbDeparture results[DEP_COUNT])
 
     memset(results, 0, sizeof(SbbDeparture) * DEP_COUNT);
     http_buf_len = 0;
-    memset(http_buf, 0, HTTP_BUF_SIZE);
+    http_buf[0] = 0;
 
-    char url[320];
+    // Station URL-encodieren (Leerzeichen → %20)
+    char station_enc[64];
+    int si = 0;
+    for (int i = 0; station[i] && si < (int)sizeof(station_enc) - 3; i++) {
+        if (station[i] == ' ') {
+            station_enc[si++] = '%'; station_enc[si++] = '2'; station_enc[si++] = '0';
+        } else {
+            station_enc[si++] = station[i];
+        }
+    }
+    station_enc[si] = 0;
+
+    // passList nur laden wenn Filter aktiv ist (spart Daten)
+    const char *pass_field = (filter_count > 0)
+        ? "&fields[]=stationboard/passList/station/name"
+        : "";
+
+    char url[512];
     snprintf(url, sizeof(url),
-        "http://transport.opendata.ch/v1/stationboard?station=%s&limit=10"
+        "http://transport.opendata.ch/v1/stationboard?station=%s&limit=15"
         "&transportations=train"
         "&fields[]=stationboard/stop/departure"
         "&fields[]=stationboard/stop/delay"
         "&fields[]=stationboard/stop/cancelled"
         "&fields[]=stationboard/stop/platform"
-        "&fields[]=stationboard/to",
-        SBB_STATION);
+        "&fields[]=stationboard/to%s",
+        station_enc, pass_field);
 
     esp_http_client_config_t config = {
         .url = url,
@@ -160,6 +225,7 @@ bool sbb_get_departures(SbbDeparture results[DEP_COUNT])
         .buffer_size_tx = 1024,
     };
     esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (!client) { ESP_LOGE(TAG, "HTTP init fehlgeschlagen"); return false; }
     esp_err_t err = esp_http_client_perform(client);
 
     if (http_buf_len == 0) {
@@ -193,9 +259,12 @@ bool sbb_get_departures(SbbDeparture results[DEP_COUNT])
         int  minutes;
     } Entry;
 
-    Entry entries[20];
+    // static: spart ~1 KB Stack (sbb_get_departures wird nur sequentiell aufgerufen)
+    static Entry entries[20];
+    memset(entries, 0, sizeof(entries));
     int n = 0;
 
+    int total_trains = 0;
     for (int i = 0; i < count && n < 20; i++) {
         cJSON *item = cJSON_GetArrayItem(stationboard, i);
         if (!item) continue;
@@ -203,19 +272,56 @@ bool sbb_get_departures(SbbDeparture results[DEP_COUNT])
         if (!stop) continue;
         cJSON *departure = cJSON_GetObjectItem(stop, "departure");
         if (!departure || !departure->valuestring) continue;
+        total_trains++;
 
         cJSON *dest = cJSON_GetObjectItem(item, "to");
         cJSON *delay_json = cJSON_GetObjectItem(stop, "delay");
         cJSON *cancelled = cJSON_GetObjectItem(stop, "cancelled");
         cJSON *platform = cJSON_GetObjectItem(stop, "platform");
 
+        // Filter prüfen: Endziel ODER Zwischenstation muss matchen
+        bool matches = (filter_count == 0);
+        if (!matches && dest && dest->valuestring) {
+            for (int f = 0; f < filter_count; f++) {
+                if (dest_filters[f] &&
+                    str_contains_ci(dest->valuestring, dest_filters[f])) {
+                    matches = true; break;
+                }
+            }
+        }
+        if (!matches) {
+            cJSON *pass_list = cJSON_GetObjectItem(item, "passList");
+            if (pass_list) {
+                int pl = cJSON_GetArraySize(pass_list);
+                for (int p = 0; p < pl && !matches; p++) {
+                    cJSON *pi = cJSON_GetArrayItem(pass_list, p);
+                    if (!pi) continue;
+                    cJSON *ps = cJSON_GetObjectItem(pi, "station");
+                    if (!ps) continue;
+                    cJSON *pn = cJSON_GetObjectItem(ps, "name");
+                    if (!pn || !pn->valuestring) continue;
+                    for (int f = 0; f < filter_count; f++) {
+                        if (dest_filters[f] &&
+                            str_contains_ci(pn->valuestring, dest_filters[f])) {
+                            matches = true; break;
+                        }
+                    }
+                }
+            }
+        }
+        if (!matches) continue;
+
         entries[n].cancelled = cancelled && cJSON_IsTrue(cancelled);
         entries[n].minutes = time_to_minutes(departure->valuestring);
         format_time(departure->valuestring, entries[n].time);
         entries[n].delay = delay_json ? delay_json->valueint : 0;
 
-        if (dest && dest->valuestring) strncpy(entries[n].destination, dest->valuestring, 31);
-        else strcpy(entries[n].destination, "?");
+        if (dest && dest->valuestring) {
+            strncpy(entries[n].destination, dest->valuestring, 31);
+            entries[n].destination[31] = 0;
+        } else {
+            strcpy(entries[n].destination, "?");
+        }
 
         if (platform && cJSON_IsString(platform) && platform->valuestring) {
             strncpy(entries[n].platform, platform->valuestring, 5);
@@ -228,13 +334,18 @@ bool sbb_get_departures(SbbDeparture results[DEP_COUNT])
     }
 
     cJSON_Delete(root);
+    if (filter_count > 0) ESP_LOGI(TAG, "Filter: %d/%d Züge passen", n, total_trains);
     if (n == 0) return false;
 
     int target_idx = -1;
     for (int i = 0; i < n; i++) {
         if (entries[i].minutes >= target_min) { target_idx = i; break; }
     }
-    if (target_idx < 0) target_idx = n - 1;
+    if (target_idx < 0) {
+        ESP_LOGW(TAG, "Alle %d Züge in der Vergangenheit (cur=%02d:%02d)",
+                 n, target_min/60, target_min%60);
+        return false;
+    }
 
     int start = target_idx;
     if (start + DEP_COUNT > n) start = n - DEP_COUNT;
