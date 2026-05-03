@@ -86,6 +86,11 @@ input[type=color]{width:36px;height:28px;padding:2px;border-radius:4px;border:1p
 .oled-header{color:#E2E8F0;font-size:11px;border-bottom:1px solid #222;padding-bottom:4px;margin-bottom:6px;letter-spacing:.06em}
 .oled-row{font-size:9px;margin-bottom:3px}
 .warn-badge{font-size:10px;color:#F59E0B;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.25);border-radius:3px;padding:1px 5px;font-family:'IBM Plex Mono',monospace}
+.esp-pill{display:flex;align-items:center;gap:5px;font-size:11px;font-family:'IBM Plex Mono',monospace;padding:3px 9px;border-radius:4px;border:1px solid;transition:background 300ms,border-color 300ms,color 300ms}
+.esp-pill.online{background:rgba(34,197,94,.1);border-color:rgba(34,197,94,.3);color:#22C55E}
+.esp-pill.offline{background:rgba(245,158,11,.1);border-color:rgba(245,158,11,.3);color:#F59E0B}
+.esp-pill.unknown{background:rgba(100,116,139,.08);border-color:rgba(100,116,139,.2);color:#64748B}
+.esp-pill-dot{width:6px;height:6px;border-radius:50%;background:currentColor;flex-shrink:0}
 .toast{position:fixed;bottom:24px;right:24px;background:#1C2333;border:1px solid #22C55E;border-radius:6px;padding:10px 16px;display:none;align-items:center;gap:8px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.5);z-index:100}
 @keyframes slideUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 .toast.show{display:flex;animation:slideUp 200ms ease}
@@ -101,9 +106,15 @@ input[type=color]{width:36px;height:28px;padding:2px;border-radius:4px;border:1p
         <div class="brand-sub">ESP32 Konfiguration</div>
       </div>
     </div>
-    <div class="save-row">
-      <span class="saved-badge" id="saved-badge">✓ Gespeichert</span>
-      <button class="btn btn-primary" onclick="saveConfig()">💾 Speichern</button>
+    <div style="display:flex;align-items:center;gap:12px">
+      <div id="esp-pill" class="esp-pill unknown">
+        <div class="esp-pill-dot"></div>
+        <span id="esp-pill-label">...</span>
+      </div>
+      <div class="save-row">
+        <span class="saved-badge" id="saved-badge">✓ Gespeichert</span>
+        <button class="btn btn-primary" onclick="saveConfig()">💾 Speichern</button>
+      </div>
     </div>
   </div>
 
@@ -509,8 +520,42 @@ function syncStatus() {
   if (od) od.textContent = station.toUpperCase();
 }
 
+// ===== ESP-STATUS =====
+let _espOnline = null;
+async function checkEsp() {
+  const pill = document.getElementById('esp-pill');
+  const lbl  = document.getElementById('esp-pill-label');
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 3000);
+    const r = await fetch('/api/status', { signal: ctrl.signal });
+    clearTimeout(t);
+    if (r.ok) {
+      _espOnline = true;
+      pill.className = 'esp-pill online';
+      lbl.textContent = 'Online';
+      return;
+    }
+  } catch(_) {}
+  _espOnline = false;
+  pill.className = 'esp-pill offline';
+  lbl.textContent = 'Schläft';
+}
+checkEsp();
+setInterval(checkEsp, 5000);
+
 // ===== SAVE =====
 async function saveConfig() {
+  // ESP erreichbar?
+  if (_espOnline === false) {
+    const toast = document.getElementById('toast');
+    toast.textContent = '⚠ ESP schläft – nicht gespeichert';
+    toast.style.borderColor = '#F59E0B';
+    toast.classList.add('show');
+    setTimeout(() => { toast.classList.remove('show'); toast.textContent = '✓ Konfiguration gespeichert'; toast.style.borderColor = '#22C55E'; }, 2500);
+    return;
+  }
+
   // Validierung
   const dsm = +document.getElementById('delaySmallMin').value;
   const dbm = +document.getElementById('delayBigMin').value;
