@@ -332,6 +332,14 @@ static void check_window_overlaps(void) {
 }
 
 // ===== MAIN =====
+static bool in_weekend_window(const struct tm *ti, const blink_config_t *c) {
+    int cur   = ti->tm_wday * 24 * 60 + ti->tm_hour * 60 + ti->tm_min;
+    int start = c->weekendStartDay * 24 * 60 + c->weekendStartH * 60 + c->weekendStartM;
+    int end   = c->weekendEndDay   * 24 * 60 + c->weekendEndH   * 60 + c->weekendEndM;
+    if (start <= end) return (cur >= start && cur < end);
+    return (cur >= start || cur < end);
+}
+
 void app_main(void) {
     // NVS + Config ganz oben (vor Hardware-Init, da GPIO-Pins aus Config kommen)
     esp_err_t nvs_ret = nvs_flash_init();
@@ -421,9 +429,18 @@ void app_main(void) {
                 if (diff <= 0) diff += 24 * 60;
                 if (diff < d) d = diff;
             }
-            if (d > cfg.sleepMaxMin) d = cfg.sleepMaxMin;
-            if (weekend_skip) ESP_LOGI(TAG, "Wochenende, schlafe %d Min", d);
-            else              ESP_LOGI(TAG, "Schlafe %d Min", d);
+            if (cfg.weekdaysOnly && in_weekend_window(&ti, &cfg)) {
+                int end_abs = cfg.weekendEndDay * 24 * 60 + cfg.weekendEndH * 60 + cfg.weekendEndM;
+                int cur_abs = ti.tm_wday * 24 * 60 + cur_min;
+                int d_weekend = end_abs - cur_abs;
+                if (d_weekend <= 0) d_weekend += 7 * 24 * 60;
+                d = d_weekend;
+                ESP_LOGI(TAG, "Wochenend-Fenster: schlafe %d Min", d);
+            } else {
+                if (d > cfg.sleepMaxMin) d = cfg.sleepMaxMin;
+                if (weekend_skip) ESP_LOGI(TAG, "Wochenende, schlafe %d Min", d);
+                else              ESP_LOGI(TAG, "Schlafe %d Min", d);
+            }
         } else {
             d = 5;
         }

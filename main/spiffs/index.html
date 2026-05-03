@@ -147,8 +147,8 @@ input[type=color]{width:36px;height:28px;padding:2px;border-radius:4px;border:1p
         <div class="section-head"><div class="section-title">📡 Netzwerk</div><div class="section-desc">WLAN-Zugangsdaten & NTP-Synchronisation</div></div>
         <div class="card">
           <div class="card-head"><div class="card-title">WLAN</div></div>
-          <div class="field"><div class="field-meta"><div class="field-label">SSID</div><div class="field-hint">Netzwerkname</div></div><div class="field-ctrl"><input type="text" class="mid" id="ssid" placeholder="Netzwerkname"></div></div>
-          <div class="field"><div class="field-meta"><div class="field-label">Passwort</div><div class="field-hint">Wird verschlüsselt in NVS gespeichert</div></div><div class="field-ctrl"><input type="password" class="mid" id="password" placeholder="••••••••"><button class="btn btn-secondary btn-sm" onclick="togglePass()">👁</button></div></div>
+          <div class="field"><div class="field-meta"><div class="field-label">SSID</div><div class="field-hint">Leer = Wert aus secrets.h wird verwendet</div></div><div class="field-ctrl"><input type="text" class="mid" id="ssid" placeholder="Leer = secrets.h"></div></div>
+          <div class="field"><div class="field-meta"><div class="field-label">Passwort</div><div class="field-hint">Leer = Wert aus secrets.h · Wird nicht zurückgesendet</div></div><div class="field-ctrl"><input type="password" class="mid" id="password" placeholder="Leer = secrets.h"><button class="btn btn-secondary btn-sm" onclick="togglePass()">👁</button></div></div>
         </div>
         <div class="card">
           <div class="card-head"><div class="card-title">NTP & Station</div></div>
@@ -166,7 +166,9 @@ input[type=color]{width:36px;height:28px;padding:2px;border-radius:4px;border:1p
           <div class="field"><div class="field-meta"><div class="field-label">Schlaf aktiviert</div><div class="field-hint">Gerät schläft außerhalb der Zeitfenster</div></div><div class="field-ctrl"><button class="toggle on" id="toggle-sleep" onclick="tog('sleep')"></button><span class="toggle-lbl" id="lbl-sleep">An</span></div></div>
           <div class="field"><div class="field-meta"><div class="field-label">Fallback-Schlafdauer</div><div class="field-hint">sleepFallbackS · ohne NTP-Sync</div></div><div class="field-ctrl"><input type="number" class="sm" id="sleepFallbackS" value="300"><span class="unit">s</span></div></div>
           <div class="field"><div class="field-meta"><div class="field-label">Schlaf nach Fenster</div><div class="field-hint">sleepAfterS · nach Ende des Zeitfensters</div></div><div class="field-ctrl"><input type="number" class="sm" id="sleepAfterS" value="300"><span class="unit">s</span></div></div>
-          <div class="field"><div class="field-meta"><div class="field-label">Max. Schlafdauer</div><div class="field-hint">sleepMaxMin · Sicherheitslimit</div></div><div class="field-ctrl"><input type="number" class="sm" id="sleepMaxMin" value="120"><span class="unit">min</span></div></div>
+          <div class="field"><div class="field-meta"><div class="field-label">Max. Schlafdauer (Wochentag)</div><div class="field-hint">sleepMaxMin · danach re-check ob Zeitfenster aktiv</div></div><div class="field-ctrl"><input type="number" class="sm" id="sleepMaxMin" value="120"><span class="unit">min</span></div></div>
+          <div class="field"><div class="field-meta"><div class="field-label">Wochenend-Schlaf von</div><div class="field-hint">weekendStartDay/H/M · ab wann Wochenend-Modus</div></div><div class="field-ctrl"><select id="weekendStartDay" style="background:#0C0F14;border:1px solid #3D4F6E;border-radius:4px;color:#E2E8F0;font-size:13px;padding:6px 8px;font-family:'IBM Plex Mono',monospace;outline:none"><option value="1">Mo</option><option value="2">Di</option><option value="3">Mi</option><option value="4">Do</option><option value="5" selected>Fr</option><option value="6">Sa</option><option value="0">So</option></select><div class="time-wrap"><input type="number" class="xs" id="weekendStartH" min="0" max="23" value="18"><span class="time-sep">:</span><input type="number" class="xs" id="weekendStartM" min="0" max="59" value="0"></div><span class="unit">Uhr</span></div></div>
+          <div class="field"><div class="field-meta"><div class="field-label">Wochenend-Schlaf bis</div><div class="field-hint">weekendEndDay/H/M · wann wieder aufwachen</div></div><div class="field-ctrl"><select id="weekendEndDay" style="background:#0C0F14;border:1px solid #3D4F6E;border-radius:4px;color:#E2E8F0;font-size:13px;padding:6px 8px;font-family:'IBM Plex Mono',monospace;outline:none"><option value="1" selected>Mo</option><option value="2">Di</option><option value="3">Mi</option><option value="4">Do</option><option value="5">Fr</option><option value="6">Sa</option><option value="0">So</option></select><div class="time-wrap"><input type="number" class="xs" id="weekendEndH" min="0" max="23" value="5"><span class="time-sep">:</span><input type="number" class="xs" id="weekendEndM" min="0" max="59" value="0"></div><span class="unit">Uhr</span></div></div>
         </div>
         <div class="card">
           <div class="card-head"><div class="card-title">Schlaf-Vorschau</div></div>
@@ -201,7 +203,7 @@ input[type=color]{width:36px;height:28px;padding:2px;border-radius:4px;border:1p
         </div>
         <div class="card">
           <div class="card-head"><div class="card-title">Fehler-Blinken</div></div>
-          <div class="field"><div class="field-meta"><div class="field-label">Blink-Periode</div><div class="field-hint">ledErrorBlinkMs · 0 = kein Blinken</div></div><div class="field-ctrl"><input type="number" class="sm" id="ledErrorBlinkMs" value="500"><span class="unit">ms</span></div></div>
+          <div class="field"><div class="field-meta"><div class="field-label">Fehler-Blinken</div><div class="field-hint">ledErrorBlinkMs · 0 = dauerhaft an (kein Blinken)</div></div><div class="field-ctrl"><input type="number" class="sm" id="ledErrorBlinkMs" value="500"><span class="unit">ms</span></div></div>
         </div>
         <div class="card">
           <div class="card-head"><div class="card-title">Vorschau</div></div>
@@ -553,6 +555,12 @@ async function saveConfig() {
     apiRetryDelayS:       +document.getElementById('apiRetryDelayS').value,
     staleMaxMin:          +document.getElementById('staleMaxMin').value,
     weekdaysOnly:         document.getElementById('toggle-wdonly').classList.contains('on'),
+    weekendStartDay:      +document.getElementById('weekendStartDay').value,
+    weekendStartH:        +document.getElementById('weekendStartH').value,
+    weekendStartM:        +document.getElementById('weekendStartM').value,
+    weekendEndDay:        +document.getElementById('weekendEndDay').value,
+    weekendEndH:          +document.getElementById('weekendEndH').value,
+    weekendEndM:          +document.getElementById('weekendEndM').value,
   };
 
   try {
@@ -627,6 +635,12 @@ async function loadConfig() {
     setVal('apiRetryDelayS',      cfg.apiRetryDelayS);
     setVal('staleMaxMin',         cfg.staleMaxMin);
     setTog('wdonly',              cfg.weekdaysOnly);
+    if (cfg.weekendStartDay !== undefined) document.getElementById('weekendStartDay').value = cfg.weekendStartDay;
+    setVal('weekendStartH',       cfg.weekendStartH);
+    setVal('weekendStartM',       cfg.weekendStartM);
+    if (cfg.weekendEndDay !== undefined) document.getElementById('weekendEndDay').value = cfg.weekendEndDay;
+    setVal('weekendEndH',         cfg.weekendEndH);
+    setVal('weekendEndM',         cfg.weekendEndM);
 
     if (cfg.destFilters) {
       cfg.destFilters.forEach((f,i) => { if(i<4) setVal('filt'+i, f); });

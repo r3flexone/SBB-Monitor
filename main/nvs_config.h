@@ -78,6 +78,14 @@ typedef struct {
     // --- Verhalten ---
     bool weekdaysOnly;              // Nur Mo–Fr
 
+    // --- Wochenend-Schlaf-Fenster ---
+    int  weekendStartDay;            // Wochenend-Schlaf ab Wochentag (0=So,1=Mo,...,5=Fr,6=Sa)
+    int  weekendStartH;              // Startzeit Stunde
+    int  weekendStartM;              // Startzeit Minute
+    int  weekendEndDay;              // Wochenend-Schlaf bis Wochentag
+    int  weekendEndH;                // Endzeit Stunde
+    int  weekendEndM;                // Endzeit Minute
+
 } blink_config_t;
 
 /**
