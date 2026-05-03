@@ -177,6 +177,7 @@ input[type=color]{width:36px;height:28px;padding:2px;border-radius:4px;border:1p
           <div class="field"><div class="field-meta"><div class="field-label">Fallback-Schlafdauer</div><div class="field-hint">Schlafdauer wenn keine Zeitsynch möglich (kein WLAN)</div></div><div class="field-ctrl"><input type="number" class="sm" id="sleepFallbackS" value="300" min="60" max="3600"><span class="unit">s</span></div></div>
           <div class="field"><div class="field-meta"><div class="field-label">Schlaf nach Fenster</div><div class="field-hint">Verzögerung bevor das Gerät nach dem Zeitfenster schläft</div></div><div class="field-ctrl"><input type="number" class="sm" id="sleepAfterS" value="300" min="0" max="3600"><span class="unit">s</span></div></div>
           <div class="field"><div class="field-meta"><div class="field-label">Max. Schlafdauer (Wochentag)</div><div class="field-hint">Sicherheitslimit — Gerät wacht spätestens nach X min auf</div></div><div class="field-ctrl"><input type="number" class="sm" id="sleepMaxMin" value="120" min="5" max="720"><span class="unit">min</span></div></div>
+          <div class="field"><div class="field-meta"><div class="field-label">Wochenend-Schlaf aktiv</div><div class="field-hint">Gerät schläft zwischen Start- und Endzeitpunkt (unabhängig von "Nur Wochentage")</div></div><div class="field-ctrl"><button class="toggle on" id="toggle-wesleep" onclick="tog('wesleep')"></button><span class="toggle-lbl" id="lbl-wesleep">An</span></div></div>
           <div class="field"><div class="field-meta"><div class="field-label">Wochenend-Schlaf ab</div><div class="field-hint">Ab diesem Zeitpunkt schläft das Gerät bis zum Weckzeitpunkt</div></div><div class="field-ctrl"><select id="weekendStartDay" style="background:#0C0F14;border:1px solid #3D4F6E;border-radius:4px;color:#E2E8F0;font-size:13px;padding:6px 8px;font-family:'IBM Plex Mono',monospace;outline:none"><option value="1">Mo</option><option value="2">Di</option><option value="3">Mi</option><option value="4">Do</option><option value="5" selected>Fr</option><option value="6">Sa</option><option value="0">So</option></select><div class="time-wrap"><input type="number" class="xs" id="weekendStartH" min="0" max="23" value="18"><span class="time-sep">:</span><input type="number" class="xs" id="weekendStartM" min="0" max="59" value="0"></div><span class="unit">Uhr</span></div></div>
           <div class="field"><div class="field-meta"><div class="field-label">Wochenend-Schlaf bis</div><div class="field-hint">Ab diesem Zeitpunkt wird das Gerät wieder normal aktiv</div></div><div class="field-ctrl"><select id="weekendEndDay" style="background:#0C0F14;border:1px solid #3D4F6E;border-radius:4px;color:#E2E8F0;font-size:13px;padding:6px 8px;font-family:'IBM Plex Mono',monospace;outline:none"><option value="1" selected>Mo</option><option value="2">Di</option><option value="3">Mi</option><option value="4">Do</option><option value="5">Fr</option><option value="6">Sa</option><option value="0">So</option></select><div class="time-wrap"><input type="number" class="xs" id="weekendEndH" min="0" max="23" value="5"><span class="time-sep">:</span><input type="number" class="xs" id="weekendEndM" min="0" max="59" value="0"></div><span class="unit">Uhr</span></div></div>
         </div>
@@ -584,6 +585,7 @@ async function saveConfig() {
     destFilters:          filters,
     destFilterCount:      filters.length,
     sleepEnabled:         document.getElementById('toggle-sleep').classList.contains('on'),
+    weekendSleepEnabled:  document.getElementById('toggle-wesleep').classList.contains('on'),
     sleepFallbackS:       +document.getElementById('sleepFallbackS').value,
     sleepAfterS:          +document.getElementById('sleepAfterS').value,
     sleepMaxMin:          +document.getElementById('sleepMaxMin').value,
@@ -664,6 +666,7 @@ async function loadConfig() {
     setVal('ntpTimeoutS',         cfg.ntpTimeoutS);
     setVal('station',             cfg.station);
     setTog('sleep',               cfg.sleepEnabled);
+    setTog('wesleep',             cfg.weekendSleepEnabled);
     setVal('sleepFallbackS',      cfg.sleepFallbackS);
     setVal('sleepAfterS',         cfg.sleepAfterS);
     setVal('sleepMaxMin',         cfg.sleepMaxMin);

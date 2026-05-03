@@ -127,6 +127,7 @@ static esp_err_t handler_config_get(httpd_req_t *req) {
     cJSON_AddBoolToObject(j, "weekdaysOnly", cfg.weekdaysOnly);
 
     // Wochenend-Schlaf-Fenster
+    cJSON_AddBoolToObject(j,   "weekendSleepEnabled", cfg.weekendSleepEnabled);
     cJSON_AddNumberToObject(j, "weekendStartDay", cfg.weekendStartDay);
     cJSON_AddNumberToObject(j, "weekendStartH",   cfg.weekendStartH);
     cJSON_AddNumberToObject(j, "weekendStartM",   cfg.weekendStartM);
@@ -257,6 +258,7 @@ static esp_err_t handler_config_post(httpd_req_t *req) {
     GB("weekdaysOnly", weekdaysOnly)
 
     // Wochenend-Schlaf-Fenster
+    GB("weekendSleepEnabled", weekendSleepEnabled)
     GI("weekendStartDay", weekendStartDay)
     GI("weekendStartH",   weekendStartH)
     GI("weekendStartM",   weekendStartM)

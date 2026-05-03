@@ -79,6 +79,7 @@ typedef struct {
     bool weekdaysOnly;              // Nur Mo–Fr
 
     // --- Wochenend-Schlaf-Fenster ---
+    bool weekendSleepEnabled;        // Wochenend-Schlaf aktiv (unabhängig von weekdaysOnly)
     int  weekendStartDay;            // Wochenend-Schlaf ab Wochentag (0=So,1=Mo,...,5=Fr,6=Sa)
     int  weekendStartH;              // Startzeit Stunde
     int  weekendStartM;              // Startzeit Minute

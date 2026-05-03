@@ -35,6 +35,7 @@ void nvs_config_defaults(blink_config_t *cfg) {
     cfg->sleepFallbackS     = 300;
     cfg->sleepAfterS        = 300;
     cfg->sleepMaxMin        = 120;
+    cfg->weekendSleepEnabled= true;
     cfg->weekendStartDay    = 5;     // Fr
     cfg->weekendStartH      = 18;
     cfg->weekendStartM      = 0;
@@ -139,6 +140,7 @@ esp_err_t nvs_config_load(blink_config_t *cfg) {
     LI("sleepFbS",      sleepFallbackS)
     LI("sleepAfterS",   sleepAfterS)
     LI("sleepMaxMin",   sleepMaxMin)
+    LB("weSlpEn",       weekendSleepEnabled)
     LI("weStartDay",    weekendStartDay)
     LI("weStartH",      weekendStartH)
     LI("weStartM",      weekendStartM)
@@ -235,6 +237,7 @@ esp_err_t nvs_config_save(const blink_config_t *cfg) {
     SI("sleepFbS",      sleepFallbackS)
     SI("sleepAfterS",   sleepAfterS)
     SI("sleepMaxMin",   sleepMaxMin)
+    SB("weSlpEn",       weekendSleepEnabled)
     SI("weStartDay",    weekendStartDay)
     SI("weStartH",      weekendStartH)
     SI("weStartM",      weekendStartM)

@@ -434,7 +434,7 @@ void app_main(void) {
                 if (diff <= 0) diff += 24 * 60;
                 if (diff < d) d = diff;
             }
-            if (cfg.weekdaysOnly && in_weekend_window(&ti, &cfg)) {
+            if (cfg.weekendSleepEnabled && in_weekend_window(&ti, &cfg)) {
                 int end_abs = cfg.weekendEndDay * 24 * 60 + cfg.weekendEndH * 60 + cfg.weekendEndM;
                 int cur_abs = ti.tm_wday * 24 * 60 + cur_min;
                 int d_weekend = end_abs - cur_abs;
