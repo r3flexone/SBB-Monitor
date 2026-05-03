@@ -471,8 +471,8 @@ void app_main(void) {
 
     // mDNS + HTTP-Server (WiFi/netif bereits durch sbb_wifi_init aktiv)
     mdns_init();
-    mdns_hostname_set("blink");
-    mdns_instance_name_set("Blink SBB Monitor");
+    mdns_hostname_set("sbb-monitor");
+    mdns_instance_name_set("SBB Monitor");
     http_server_start();
 
     TickType_t active_start = xTaskGetTickCount();

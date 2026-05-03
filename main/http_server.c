@@ -299,7 +299,7 @@ esp_err_t http_server_start(void) {
     for (int i = 0; i < 4; i++)
         httpd_register_uri_handler(server, &uris[i]);
 
-    ESP_LOGI(TAG, "HTTP server gestartet — http://blink.local");
+    ESP_LOGI(TAG, "HTTP server gestartet — http://sbb-monitor.local");
     return ESP_OK;
 }
 

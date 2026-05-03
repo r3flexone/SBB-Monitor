@@ -1,69 +1,114 @@
-| Supported Targets | ESP32 | ESP32-C2 | ESP32-C3 | ESP32-C5 | ESP32-C6 | ESP32-C61 | ESP32-H2 | ESP32-H21 | ESP32-H4 | ESP32-P4 | ESP32-S2 | ESP32-S3 |
-| ----------------- | ----- | -------- | -------- | -------- | -------- | --------- | -------- | --------- | -------- | -------- | -------- | -------- |
+# SBB Monitor
 
-# Blink Example
+ESP32-S3 Abfahrtsmonitor für Schweizer Bahnhöfe (transport.opendata.ch).
 
-(See the README.md file in the upper level 'examples' directory for more information about examples.)
+Das Gerät wacht nach Zeitplan auf, holt die nächsten Abfahrten vom gewünschten Bahnhof und zeigt sie auf einem OLED-Display an. Ein NeoPixel signalisiert den schlechtesten Status der nächsten vier Züge. Danach kehrt es in den Deep Sleep zurück, um den Akku zu schonen.
 
-This example demonstrates how to blink a LED by using the GPIO driver or using the [led_strip](https://components.espressif.com/component/espressif/led_strip) library if the LED is addressable e.g. [WS2812](https://cdn-shop.adafruit.com/datasheets/WS2812B.pdf). The `led_strip` library is installed via [component manager](main/idf_component.yml).
+## Hardware
 
-## How to Use Example
+| Komponente | Beschreibung |
+|---|---|
+| **Mikrokontroller** | ESP32-S3 (getestet auf ESP32-S3-DevKitC) |
+| **Display** | SSD1306 128×64 OLED (I²C) |
+| **Status-LED** | WS2812 NeoPixel |
+| **Button** | Taster an GPIO 0 (Wake-up + Langdruck) |
 
-Before project configuration and build, be sure to set the correct chip target using `idf.py set-target <chip_name>`.
+### Verdrahtung (Standardwerte)
 
-### Hardware Required
+| Signal | GPIO |
+|---|---|
+| NeoPixel DATA | 48 |
+| OLED SDA | 4 |
+| OLED SCL | 5 |
+| OLED I²C Adresse | 0x3C |
+| Button | 0 |
 
-* A development board with normal LED or addressable LED on-board (e.g., ESP32-S3-DevKitC, ESP32-C6-DevKitC etc.)
-* A USB cable for Power supply and programming
+Alle Pins sind über das Web-Panel oder NVS konfigurierbar.
 
-See [Development Boards](https://www.espressif.com/en/products/devkits) for more information about it.
+## Einrichtung
 
-### Configure the Project
+```bash
+# 1. WiFi-Zugangsdaten eintragen (wird von Git ignoriert)
+cp main/secrets.h.example main/secrets.h
+# WIFI_SSID und WIFI_PASS in secrets.h anpassen
 
-Open the project configuration menu (`idf.py menuconfig`).
+# 2. Ziel-Chip setzen
+idf.py set-target esp32s3
 
-In the `Example Configuration` menu:
-
-* Select the LED type in the `Blink LED type` option.
-  * Use `GPIO` for regular LED
-  * Use `LED strip` for addressable LED
-* If the LED type is `LED strip`, select the backend peripheral
-  * `RMT` is only available for ESP targets with RMT peripheral supported
-  * `SPI` is available for all ESP targets
-* Set the GPIO number used for the signal in the `Blink GPIO number` option.
-* Set the blinking period in the `Blink period in ms` option.
-
-### Build and Flash
-
-Run `idf.py -p PORT flash monitor` to build, flash and monitor the project.
-
-(To exit the serial monitor, type ``Ctrl-]``.)
-
-See the [Getting Started Guide](https://docs.espressif.com/projects/esp-idf/en/latest/get-started/index.html) for full steps to configure and use ESP-IDF to build projects.
-
-## Example Output
-
-As you run the example, you will see the LED blinking, according to the previously defined period. For the addressable LED, you can also change the LED color by setting the `led_strip_set_pixel(led_strip, 0, 16, 16, 16);` (LED Strip, Pixel Number, Red, Green, Blue) with values from 0 to 255 in the [source file](main/blink_example_main.c).
-
-```text
-I (315) example: Example configured to blink addressable LED!
-I (325) example: Turning the LED OFF!
-I (1325) example: Turning the LED ON!
-I (2325) example: Turning the LED OFF!
-I (3325) example: Turning the LED ON!
-I (4325) example: Turning the LED OFF!
-I (5325) example: Turning the LED ON!
-I (6325) example: Turning the LED OFF!
-I (7325) example: Turning the LED ON!
-I (8325) example: Turning the LED OFF!
+# 3. Bauen und flashen
+idf.py build flash monitor   # Ctrl-] zum Beenden
 ```
 
-Note: The color order could be different according to the LED model.
+> Beim ersten Mal oder nach Änderung der Partition Table:
+> `idf.py fullclean` vor dem Build ausführen.
 
-The pixel number indicates the pixel position in the LED strip. For a single LED, use 0.
+## Konfiguration
 
-## Troubleshooting
+### Web-Panel (empfohlen)
 
-* If the LED isn't blinking, check the GPIO or the LED type selection in the `Example Configuration` menu.
+Wenn das Gerät aktiv ist (im Zeitfenster oder per Button geweckt), ist das Konfigurations-Panel unter **http://sbb-monitor.local** erreichbar.
 
-For any technical queries, please open an [issue](https://github.com/espressif/esp-idf/issues) on GitHub. We will get back to you soon.
+Dort lassen sich einstellen:
+- Bahnhof und Ziel-Filter
+- Zeitfenster (bis zu 8, wann das Gerät aktiv sein soll)
+- Wochenend-Schlaf-Fenster (Fr 18:00 → Mo 05:00, konfigurierbar)
+- WiFi-Zugangsdaten (überschreibt secrets.h)
+- LED-Farben, Verspätungs-Schwellen, Refresh-Intervalle
+- GPIO-Belegung
+
+Einstellungen werden in NVS gespeichert und überleben Neustarts.
+
+### secrets.h (Fallback)
+
+`WIFI_SSID` und `WIFI_PASS` in `main/secrets.h` werden verwendet, solange im Web-Panel keine eigenen Zugangsdaten gespeichert sind.
+
+## Funktionsweise
+
+### Aufwach- und Schlaf-Logik
+
+1. RTC-Zeit prüfen — falls keine gültige Zeit vorhanden, NTP-Sync via WiFi.
+2. Prüfen ob aktueller Zeitpunkt in einem aktiven Zeitfenster liegt und kein Wochenend-Schlaf aktiv ist.
+3. **Außerhalb des Fensters:** Deep Sleep bis zum nächsten Fensterstart (max. `sleepMaxMin` Minuten). Im Wochenend-Fenster (`weekdaysOnly = true`) wird direkt bis zum Ende des Wochenend-Fensters geschlafen.
+4. **Im Fenster oder per Button geweckt:** Aktiv-Schleife bis Fensterende.
+5. Nach dem Fenster: Deep Sleep (Fallback 5 min).
+
+### Aktiv-Schleife
+
+Pro Iteration:
+- Abfahrten von `transport.opendata.ch` abrufen (mit Retry).
+- Bei Fehler: gecachte Daten anzeigen, solange sie `< staleMaxMin` Minuten alt sind.
+- NeoPixel: schlechtester Status der nächsten 4 gültigen, nicht-ausgefallenen Züge.
+  - Grün = pünktlich · Cyan = leicht verspätet · Lila = stark verspätet · Rot = Ausfall
+- OLED: Abfahrtsliste mit Bahnhofname und Uhrzeit in der Kopfzeile.
+- Adaptiver Refresh: je näher der nächste Zug, desto häufiger wird abgefragt.
+
+### Ziel-Filter
+
+Bis zu 4 Substring-Filter (case-insensitiv) auf Endstation und Zwischenhalte. Leer = alle Züge.
+
+## Projektstruktur
+
+```
+main/
+  main.c          — Hardware-Treiber und Hauptschleife
+  sbb.c / sbb.h   — WiFi, HTTP, JSON-Parsing, Filter-Logik
+  http_server.c   — Web-Panel (SPIFFS + /api/config)
+  nvs_config.c    — Konfiguration in NVS lesen/schreiben
+  cJSON.c         — Vendored JSON-Library
+  spiffs/
+    index.html    — Web-Panel UI (wird auf SPIFFS geflasht)
+  secrets.h.example
+```
+
+## Build-System
+
+Standard ESP-IDF v6 Projekt. Ziel: `esp32s3`.
+
+Partition Table (`partitions.csv`):
+
+| Name | Typ | Grösse |
+|---|---|---|
+| nvs | data/nvs | 24 KB |
+| phy_init | data/phy | 4 KB |
+| factory | app/factory | 1500 KB |
+| storage | data/spiffs | 256 KB |
