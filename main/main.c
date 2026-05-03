@@ -640,6 +640,8 @@ void app_main(void) {
                 force_sleep = true;
                 break;
             }
+            // Config-Änderung → äußere Schleife sofort reagieren lassen
+            if (g_cfg_dirty) break;
             vTaskDelay(pdMS_TO_TICKS(100));
         }
         if (force_sleep) break;
