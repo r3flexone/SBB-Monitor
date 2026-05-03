@@ -267,6 +267,10 @@ static esp_err_t handler_config_post(httpd_req_t *req) {
     cJSON_Delete(j);
 
     esp_err_t err = nvs_config_save(&cfg);
+    if (err == ESP_OK) {
+        extern volatile bool g_cfg_dirty;
+        g_cfg_dirty = true;
+    }
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_type(req, "application/json");
     if (err == ESP_OK) {

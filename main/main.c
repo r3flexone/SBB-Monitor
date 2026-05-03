@@ -24,6 +24,9 @@ static const char *TAG = "main";
 // Konfiguration — geladen aus NVS in app_main, überall verfügbar
 static blink_config_t cfg;
 
+// Gesetzt vom HTTP-Server nach erfolgreichem POST /api/config
+volatile bool g_cfg_dirty = false;
+
 #define OLED_WIDTH  128
 #define OLED_HEIGHT  64
 
@@ -503,6 +506,13 @@ void app_main(void) {
         pdMS_TO_TICKS((uint32_t)(cfg.oledInvertMin > 0 ? cfg.oledInvertMin : 1440) * 60 * 1000);
 
     while (xTaskGetTickCount() < active_end) {
+        if (g_cfg_dirty) {
+            nvs_config_load(&cfg);
+            g_cfg_dirty = false;
+            for (int i = 0; i < 4; i++)
+                filter_ptrs[i] = (i < cfg.destFilterCount) ? cfg.destFilters[i] : NULL;
+            ESP_LOGI(TAG, "Config neu geladen (Web-Panel)");
+        }
         sbb_wifi_reconnect();
 
         bool success = false;
