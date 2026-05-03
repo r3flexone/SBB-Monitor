@@ -610,7 +610,7 @@ void app_main(void) {
         TickType_t next_toggle = xTaskGetTickCount() + pdMS_TO_TICKS((uint32_t)cfg.ledErrorBlinkMs);
         TickType_t next_clock = xTaskGetTickCount() + pdMS_TO_TICKS(30 * 1000);
         TickType_t next_bar = xTaskGetTickCount() + pdMS_TO_TICKS(1000);
-        while (xTaskGetTickCount() < wait_end && xTaskGetTickCount() < active_end) {
+        while (xTaskGetTickCount() < wait_end && (run_forever || xTaskGetTickCount() < active_end)) {
             TickType_t t = xTaskGetTickCount();
             if (!success && cfg.ledErrorBlinkMs > 0 && t >= next_toggle) {
                 blink_on = !blink_on;
