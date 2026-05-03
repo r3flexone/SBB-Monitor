@@ -151,9 +151,8 @@ input[type=color]{width:36px;height:28px;padding:2px;border-radius:4px;border:1p
           <div class="field"><div class="field-meta"><div class="field-label">Passwort</div><div class="field-hint">Leer = Wert aus secrets.h · Wird nicht zurückgesendet</div></div><div class="field-ctrl"><input type="password" class="mid" id="password" placeholder="Leer = secrets.h"><button class="btn btn-secondary btn-sm" onclick="togglePass()">👁</button></div></div>
         </div>
         <div class="card">
-          <div class="card-head"><div class="card-title">NTP & Station</div></div>
+          <div class="card-head"><div class="card-title">NTP</div></div>
           <div class="field"><div class="field-meta"><div class="field-label">NTP Timeout</div><div class="field-hint">ntpTimeoutS · pool.ntp.org</div></div><div class="field-ctrl"><input type="number" class="sm" id="ntpTimeoutS" value="5"><span class="unit">s</span></div></div>
-          <div class="field"><div class="field-meta"><div class="field-label">Station</div><div class="field-hint">SBB_STATION — API-Abfragestring</div></div><div class="field-ctrl"><input type="text" class="mid" id="station" value="Gelterkinden"></div></div>
           <div class="field"><div class="field-meta"><div class="field-label">Verbindung testen</div><div class="field-hint" id="ntp-txt">Nicht getestet</div></div><div class="field-ctrl"><span id="ntp-dot" style="width:7px;height:7px;border-radius:50%;background:#64748B;display:inline-block"></span><button class="btn btn-secondary btn-sm" onclick="testNtp()">Testen</button></div></div>
         </div>
       </div>
@@ -181,6 +180,10 @@ input[type=color]{width:36px;height:28px;padding:2px;border-radius:4px;border:1p
       <!-- ZIEL-FILTER -->
       <div id="sec-filter" class="section">
         <div class="section-head"><div class="section-title">🔍 Ziel-Filter</div><div class="section-desc">Nur Züge anzeigen deren Ziel den Filter enthält (Substring, case-insensitiv). Leer = alle Züge.</div></div>
+        <div class="card">
+          <div class="card-head"><div class="card-title">Station</div></div>
+          <div class="field"><div class="field-meta"><div class="field-label">Station</div><div class="field-hint">Name wie auf sbb.ch, z.B. "Basel SBB"</div></div><div class="field-ctrl"><input type="text" class="mid" id="station" value="Gelterkinden"></div></div>
+        </div>
         <div class="card">
           <div class="card-head"><div class="card-title">Filter (max. 4)</div></div>
           <div class="field"><div class="field-meta"><div class="field-label">Filter 1</div><div class="field-hint">z.B. "Basel" oder "Liestal"</div></div><div class="field-ctrl"><input type="text" class="mid" id="filt0" placeholder="Leer = inaktiv"></div></div>
