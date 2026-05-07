@@ -184,7 +184,7 @@ input[type=color]{width:36px;height:28px;padding:2px;border-radius:4px;border:1p
         <div class="card">
           <div class="card-head"><div class="card-title">Schlaf-Vorschau</div></div>
           <div class="field" style="border:none;padding:14px 16px">
-            <div><div style="font-family:'IBM Plex Mono',monospace;font-size:28px;font-weight:600;color:#F59E0B" id="sleep-preview">—</div><div class="field-hint" style="margin-top:4px">Minuten bis zum nächsten aktiven Fenster</div></div>
+            <div><div style="font-family:'IBM Plex Mono',monospace;font-size:28px;font-weight:600;color:#F59E0B" id="sleep-preview">—</div><div class="field-hint" style="margin-top:4px" id="sleep-preview-hint">Schlafdauer bis zum nächsten Zeitfenster</div></div>
           </div>
         </div>
       </div>
@@ -363,6 +363,7 @@ function tog(key) {
   const on = el.classList.contains('on');
   const lbl = document.getElementById('lbl-' + key);
   if (lbl) lbl.textContent = on ? 'An' : 'Aus';
+  updateSleepPreview();
 }
 
 // ===== PASSWORD =====
@@ -476,21 +477,75 @@ setInterval(updateClock, 1000);
 updateClock();
 
 // ===== SLEEP PREVIEW =====
+function fmtMin(n) {
+  if (n >= 60) return Math.floor(n/60) + 'h ' + (n%60) + 'min';
+  return n + ' min';
+}
 function updateSleepPreview() {
   const el = document.getElementById('sleep-preview');
+  const hint = document.getElementById('sleep-preview-hint');
   if (!el) return;
-  const now = new Date();
-  const cur = now.getHours()*60 + now.getMinutes();
-  const max = parseInt(document.getElementById('sleepMaxMin')?.value || 120);
-  let min = Infinity;
+
+  const sleepEnabled = document.getElementById('toggle-sleep')?.classList.contains('on');
+  if (!sleepEnabled) {
+    el.textContent = '—';
+    if (hint) hint.textContent = 'Schlaf deaktiviert — Gerät bleibt wach';
+    return;
+  }
+
+  const now    = new Date();
+  const wday   = now.getDay();
+  const cur    = now.getHours()*60 + now.getMinutes();
+  const max    = parseInt(document.getElementById('sleepMaxMin')?.value) || 120;
+  const wdOnly = document.getElementById('toggle-wdonly')?.classList.contains('on');
+  const isWE   = (wday === 0 || wday === 6);
+
+  // Im Zeitfenster?
+  let inWindow = false;
+  if (!(wdOnly && isWE)) {
+    inWindow = windows.some(w => cur >= w.startH*60+w.startM && cur < w.endH*60+w.endM);
+  }
+  if (inWindow) {
+    el.textContent = 'aktiv';
+    if (hint) hint.textContent = 'Gerät ist gerade im Zeitfenster aktiv';
+    return;
+  }
+
+  // Wochenend-Schlaf-Fenster
+  const weSleepOn = document.getElementById('toggle-wesleep')?.classList.contains('on');
+  if (weSleepOn) {
+    const wsDay = +document.getElementById('weekendStartDay')?.value;
+    const wsH   = +document.getElementById('weekendStartH')?.value;
+    const wsM   = +document.getElementById('weekendStartM')?.value;
+    const weDay = +document.getElementById('weekendEndDay')?.value;
+    const weH   = +document.getElementById('weekendEndH')?.value;
+    const weM   = +document.getElementById('weekendEndM')?.value;
+    const curAbs   = wday*1440 + cur;
+    const startAbs = wsDay*1440 + wsH*60 + wsM;
+    const endAbs   = weDay*1440 + weH*60 + weM;
+    const inWE = (startAbs <= endAbs)
+      ? (curAbs >= startAbs && curAbs < endAbs)
+      : (curAbs >= startAbs || curAbs < endAbs);
+    if (inWE) {
+      let d = endAbs - curAbs;
+      if (d < 0) d += 7*1440;
+      el.textContent = fmtMin(d);
+      if (hint) hint.textContent = 'Wochenend-Schlaf aktiv — kein sleepMaxMin-Limit';
+      return;
+    }
+  }
+
+  // Normal: bis zum nächsten Zeitfenster-Start
+  let m = Infinity;
   windows.forEach(w => {
     let d = w.startH*60+w.startM - cur;
-    if (d <= 0) d += 24*60;
-    if (d < min) min = d;
+    if (d <= 0) d += 1440;
+    if (d < m) m = d;
   });
-  if (min === Infinity) min = 0;
-  min = Math.min(min, max);
-  el.textContent = min + ' min';
+  if (m === Infinity) m = 0;
+  m = Math.min(m, max);
+  el.textContent = fmtMin(m);
+  if (hint) hint.textContent = 'Schlafdauer bis zum nächsten Zeitfenster (max. ' + max + ' min)';
 }
 setInterval(updateSleepPreview, 5000);
 updateSleepPreview();
