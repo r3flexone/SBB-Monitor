@@ -552,14 +552,10 @@ updateSleepPreview();
 
 // ===== LED SIM =====
 function simLed(state) {
-  const colors = {
-    ok:     ['#00FF00','Pünktlich'],
-    sm:     ['#00FFFF','Leichte Verspätung'],
-    big:    ['#8000FF','Starke Verspätung'],
-    cancel: ['#FF0000','Ausfall / Fehler'],
-    load:   ['#FF8000','Verbinden...'],
-  };
-  const [c, label] = colors[state] || colors.ok;
+  const colorIds = { ok:'ledOkColor', sm:'ledDelaySmallColor', big:'ledDelayBigColor', cancel:'ledCancelledColor', load:'ledLoadingColor' };
+  const labels   = { ok:'Pünktlich', sm:'Leichte Verspätung', big:'Starke Verspätung', cancel:'Ausfall / Fehler', load:'Verbinden...' };
+  const c = document.getElementById(colorIds[state] || 'ledOkColor')?.value || '#00FF00';
+  const label = labels[state] || 'Pünktlich';
   const dot = document.getElementById('led-dot');
   const lbl = document.getElementById('led-label');
   if (dot) { dot.style.background = c; dot.style.boxShadow = `0 0 10px ${c}88`; }

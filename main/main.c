@@ -447,7 +447,8 @@ void app_main(void) {
                 else              ESP_LOGI(TAG, "Schlafe %d Min", d);
             }
         } else {
-            d = 5;
+            d = cfg.sleepFallbackS / 60;
+            if (d < 1) d = 1;
         }
         show_sleep_info(d);
         go_to_sleep((uint64_t)d * 60ULL * 1000000ULL);
@@ -661,6 +662,6 @@ void app_main(void) {
 
     if (inverted) oled_cmd(0xA6);
     http_server_stop();
-    show_sleep_info(5);
-    go_to_sleep(5ULL * 60 * 1000000ULL);
+    show_sleep_info(cfg.sleepAfterS / 60);
+    go_to_sleep((uint64_t)cfg.sleepAfterS * 1000000ULL);
 }
