@@ -16,7 +16,7 @@ void nvs_config_defaults(blink_config_t *cfg) {
     cfg->timeWindows[0]     = (time_window_t){6, 45, 7, 0};
 
     // Button
-    cfg->buttonActiveMin    = 2;
+    cfg->buttonActiveMin    = 10;
     cfg->buttonLongPressMs  = 3000;
     cfg->buttonLongActiveMin= 10;
     cfg->buttonGpio         = 0;
