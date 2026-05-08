@@ -512,12 +512,16 @@ void app_main(void) {
 
     while (!force_sleep && (run_forever || xTaskGetTickCount() < active_end)) {
         if (g_cfg_dirty) {
-            nvs_config_load(&cfg);
+            esp_err_t load_err = nvs_config_load(&cfg);
             g_cfg_dirty = false;
+            if (load_err != ESP_OK) {
+                ESP_LOGE(TAG, "Config Reload fehlgeschlagen: %s", esp_err_to_name(load_err));
+            } else {
+                ESP_LOGI(TAG, "Config neu geladen (Web-Panel)");
+            }
             run_forever = !cfg.sleepEnabled && !in_window && !woken_by_button;
             for (int i = 0; i < 4; i++)
                 filter_ptrs[i] = (i < cfg.destFilterCount) ? cfg.destFilters[i] : NULL;
-            ESP_LOGI(TAG, "Config neu geladen (Web-Panel)");
         }
         sbb_wifi_reconnect();
 

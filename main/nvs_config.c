@@ -283,6 +283,10 @@ esp_err_t nvs_config_save(const blink_config_t *cfg) {
 
     err = nvs_commit(h);
     nvs_close(h);
-    ESP_LOGI(TAG, "Config gespeichert");
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "NVS commit fehlgeschlagen: %s", esp_err_to_name(err));
+    } else {
+        ESP_LOGI(TAG, "Config gespeichert");
+    }
     return err;
 }
