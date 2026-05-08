@@ -512,6 +512,7 @@ void app_main(void) {
 
     while (!force_sleep && (run_forever || xTaskGetTickCount() < active_end)) {
         if (g_cfg_dirty) {
+            bool was_forever = run_forever;
             esp_err_t load_err = nvs_config_load(&cfg);
             g_cfg_dirty = false;
             if (load_err != ESP_OK) {
@@ -520,6 +521,12 @@ void app_main(void) {
                 ESP_LOGI(TAG, "Config neu geladen (Web-Panel)");
             }
             run_forever = !cfg.sleepEnabled && !in_window && !woken_by_button;
+            if (was_forever && !run_forever) {
+                // Sleep wurde aktiviert → frischen buttonActiveMin-Timer starten
+                active_start = xTaskGetTickCount();
+                active_end   = active_start + pdMS_TO_TICKS((uint32_t)cfg.buttonActiveMin * 60 * 1000);
+                ESP_LOGI(TAG, "Sleep aktiviert → Timer %d Min", cfg.buttonActiveMin);
+            }
             for (int i = 0; i < 4; i++)
                 filter_ptrs[i] = (i < cfg.destFilterCount) ? cfg.destFilters[i] : NULL;
         }
@@ -576,7 +583,8 @@ void app_main(void) {
             draw_text(0, 32, "PRUEFE NETZ...");
             oled_flush();
         }
-        draw_countdown_bar(active_start, active_end);
+        { TickType_t _n = xTaskGetTickCount();
+          draw_countdown_bar(run_forever ? _n : active_start, run_forever ? _n + 1 : active_end); }
         flush_page7();
 
         // Adaptiver Refresh
@@ -629,12 +637,12 @@ void app_main(void) {
             }
             if (has_cached && t >= next_clock) {
                 display_departures(last_deps, show_stale);
-                draw_countdown_bar(active_start, active_end);
+                draw_countdown_bar(run_forever ? t : active_start, run_forever ? t + 1 : active_end);
                 flush_page7();
                 next_clock = t + pdMS_TO_TICKS(30 * 1000);
             }
             if (t >= next_bar) {
-                draw_countdown_bar(active_start, active_end);
+                draw_countdown_bar(run_forever ? t : active_start, run_forever ? t + 1 : active_end);
                 flush_page7();
                 next_bar = t + pdMS_TO_TICKS(1000);
             }
