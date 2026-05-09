@@ -13,7 +13,7 @@ ESP32-S3 SBB (Swiss Federal Railways) Departure Monitor. The device:
 
 ## Build / flash / monitor
 
-Standard ESP-IDF v6 project. Target is `esp32s3`.
+Standard ESP-IDF v5.x project. Target is `esp32s3`.
 
 ```
 # one-time: create WiFi credentials (gitignored)
@@ -39,7 +39,7 @@ All application code lives in `main/`. Source files:
 - **`main/main.c`** — hardware drivers and the active-window main loop.
 - **`main/sbb.c` / `sbb.h`** — WiFi, HTTP, JSON parsing, filter logic. Public API: `sbb_wifi_init()` and `sbb_get_departures()`.
 - **`main/nvs_config.c` / `nvs_config.h`** — all configuration in NVS. `blink_config_t` is the central struct. Defaults in `nvs_config_defaults()`.
-- **`main/http_server.c` / `http_server.h`** — web panel (SPIFFS + `/api/config` GET/POST). Sets `g_cfg_dirty = true` after save so the main loop reloads cfg.
+- **`main/http_server.c` / `http_server.h`** — web panel (SPIFFS + `/api/config` GET/POST + `/api/status` GET). Sets `g_cfg_dirty = true` after successful save so the main loop reloads cfg.
 - **`main/spiffs/index.html`** — web panel UI, flashed to SPIFFS.
 - **`main/cJSON.c` / `cJSON.h`** — vendored JSON library, do not modify.
 
@@ -59,20 +59,23 @@ When adding a new tunable: add the field to `blink_config_t`, set a default in `
 2. Init LED and OLED, set TZ (`CET-1CEST,M3.5.0,M10.5.0/3`).
 3. `time()` + `localtime_r()` — the ESP32 RTC keeps time across deep sleep, so NTP is only re-run if `tm_year < 100` (no valid time yet).
 4. Compute `in_window = time_valid && !weekend_skip && inside_active_time`.
-5. **If not in window and not woken by button → sleep.** In the weekend window (`weekdaysOnly = true`): sleep directly until `weekendEnd`. Otherwise: sleep until next window start, capped at `sleepMaxMin`.
-6. Otherwise run the active loop until `active_end` (end of time window, or button active duration).
-7. After the loop, `go_to_sleep(5 min)` as fallback.
+5. **If not in window and not woken by button and `sleepEnabled = true` → sleep.** If `weekendSleepEnabled` and inside the weekend window: sleep directly until `weekendEnd`. Otherwise: sleep until next window start, capped at `sleepMaxMin`. If no valid time: sleep `sleepFallbackS` seconds.
+6. **If `sleepEnabled = false` and not in window and not woken by button:** set `run_forever = true` — the active loop runs indefinitely. The OLED countdown bar stays full. When sleep is re-enabled via the web panel, a fresh `buttonActiveMin`-timer starts from the save moment.
+7. Otherwise run the active loop until `active_end` (end of time window, or button active duration).
+8. Button pressed during active loop → `force_sleep = true`, exits immediately.
+9. After the loop, `go_to_sleep(sleepAfterS)` (default 300 s = 5 min).
 
 ### Active-loop responsibilities
 
-One `while (xTaskGetTickCount() < active_end)` iteration does:
-1. Reload `cfg` from NVS if `g_cfg_dirty` is set (after web panel save).
+`while (!force_sleep && (run_forever || xTaskGetTickCount() < active_end))` — one iteration does:
+1. Reload `cfg` from NVS if `g_cfg_dirty` is set (after web panel save). Re-evaluates `run_forever`. If sleep was just re-enabled (`was_forever && !run_forever`), resets `active_end` to now + `buttonActiveMin`.
 2. Retry-fetch departures (`cfg.apiRetryCount` attempts, `cfg.apiRetryDelayS` apart).
 3. If success → update in-RAM cache (`last_deps`, `cached_time`). If failure → show cached data with `!` prefix if `< cfg.staleMaxMin` minutes old.
 4. LED: **worst status across all 4 valid, non-cancelled departures** (Ausfall > big delay > small delay > OK).
 5. Render via `display_departures()` which in turn calls `draw_header()` (station name + clock).
-6. Compute minutes to next non-cancelled future train → tiered `refresh_sec`.
-7. Inner wait loop handles: LED blink in error state, OLED invert for burn-in protection, re-render every 30 s.
+6. Draw countdown bar — full (100 %) when `run_forever`, counting down otherwise.
+7. Compute minutes to next non-cancelled future train → tiered `refresh_sec`.
+8. Inner wait loop handles: LED blink in error state, OLED invert for burn-in protection, re-render every 30 s, button-press → `force_sleep`, `g_cfg_dirty` → break to outer loop immediately.
 
 ### Stack and memory gotchas
 
