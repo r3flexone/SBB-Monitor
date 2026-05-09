@@ -86,6 +86,11 @@ input[type=color]{width:36px;height:28px;padding:2px;border-radius:4px;border:1p
 .oled-header{color:#E2E8F0;font-size:11px;border-bottom:1px solid #222;padding-bottom:4px;margin-bottom:6px;letter-spacing:.06em}
 .oled-row{font-size:9px;margin-bottom:3px}
 .warn-badge{font-size:10px;color:#F59E0B;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.25);border-radius:3px;padding:1px 5px;font-family:'IBM Plex Mono',monospace}
+.esp-pill{display:flex;align-items:center;gap:5px;font-size:11px;font-family:'IBM Plex Mono',monospace;padding:3px 9px;border-radius:4px;border:1px solid;transition:background 300ms,border-color 300ms,color 300ms}
+.esp-pill.online{background:rgba(34,197,94,.1);border-color:rgba(34,197,94,.3);color:#22C55E}
+.esp-pill.offline{background:rgba(245,158,11,.1);border-color:rgba(245,158,11,.3);color:#F59E0B}
+.esp-pill.unknown{background:rgba(100,116,139,.08);border-color:rgba(100,116,139,.2);color:#64748B}
+.esp-pill-dot{width:6px;height:6px;border-radius:50%;background:currentColor;flex-shrink:0}
 .toast{position:fixed;bottom:24px;right:24px;background:#1C2333;border:1px solid #22C55E;border-radius:6px;padding:10px 16px;display:none;align-items:center;gap:8px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.5);z-index:100}
 @keyframes slideUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 .toast.show{display:flex;animation:slideUp 200ms ease}
@@ -101,9 +106,15 @@ input[type=color]{width:36px;height:28px;padding:2px;border-radius:4px;border:1p
         <div class="brand-sub">ESP32 Konfiguration</div>
       </div>
     </div>
-    <div class="save-row">
-      <span class="saved-badge" id="saved-badge">✓ Gespeichert</span>
-      <button class="btn btn-primary" onclick="saveConfig()">💾 Speichern</button>
+    <div style="display:flex;align-items:center;gap:12px">
+      <div id="esp-pill" class="esp-pill unknown">
+        <div class="esp-pill-dot"></div>
+        <span id="esp-pill-label">...</span>
+      </div>
+      <div class="save-row">
+        <span class="saved-badge" id="saved-badge">✓ Gespeichert</span>
+        <button class="btn btn-primary" onclick="saveConfig()">💾 Speichern</button>
+      </div>
     </div>
   </div>
 
@@ -166,13 +177,14 @@ input[type=color]{width:36px;height:28px;padding:2px;border-radius:4px;border:1p
           <div class="field"><div class="field-meta"><div class="field-label">Fallback-Schlafdauer</div><div class="field-hint">Schlafdauer wenn keine Zeitsynch möglich (kein WLAN)</div></div><div class="field-ctrl"><input type="number" class="sm" id="sleepFallbackS" value="300" min="60" max="3600"><span class="unit">s</span></div></div>
           <div class="field"><div class="field-meta"><div class="field-label">Schlaf nach Fenster</div><div class="field-hint">Verzögerung bevor das Gerät nach dem Zeitfenster schläft</div></div><div class="field-ctrl"><input type="number" class="sm" id="sleepAfterS" value="300" min="0" max="3600"><span class="unit">s</span></div></div>
           <div class="field"><div class="field-meta"><div class="field-label">Max. Schlafdauer (Wochentag)</div><div class="field-hint">Sicherheitslimit — Gerät wacht spätestens nach X min auf</div></div><div class="field-ctrl"><input type="number" class="sm" id="sleepMaxMin" value="120" min="5" max="720"><span class="unit">min</span></div></div>
+          <div class="field"><div class="field-meta"><div class="field-label">Wochenend-Schlaf aktiv</div><div class="field-hint">Gerät schläft zwischen Start- und Endzeitpunkt (unabhängig von "Nur Wochentage")</div></div><div class="field-ctrl"><button class="toggle on" id="toggle-wesleep" onclick="tog('wesleep')"></button><span class="toggle-lbl" id="lbl-wesleep">An</span></div></div>
           <div class="field"><div class="field-meta"><div class="field-label">Wochenend-Schlaf ab</div><div class="field-hint">Ab diesem Zeitpunkt schläft das Gerät bis zum Weckzeitpunkt</div></div><div class="field-ctrl"><select id="weekendStartDay" style="background:#0C0F14;border:1px solid #3D4F6E;border-radius:4px;color:#E2E8F0;font-size:13px;padding:6px 8px;font-family:'IBM Plex Mono',monospace;outline:none"><option value="1">Mo</option><option value="2">Di</option><option value="3">Mi</option><option value="4">Do</option><option value="5" selected>Fr</option><option value="6">Sa</option><option value="0">So</option></select><div class="time-wrap"><input type="number" class="xs" id="weekendStartH" min="0" max="23" value="18"><span class="time-sep">:</span><input type="number" class="xs" id="weekendStartM" min="0" max="59" value="0"></div><span class="unit">Uhr</span></div></div>
           <div class="field"><div class="field-meta"><div class="field-label">Wochenend-Schlaf bis</div><div class="field-hint">Ab diesem Zeitpunkt wird das Gerät wieder normal aktiv</div></div><div class="field-ctrl"><select id="weekendEndDay" style="background:#0C0F14;border:1px solid #3D4F6E;border-radius:4px;color:#E2E8F0;font-size:13px;padding:6px 8px;font-family:'IBM Plex Mono',monospace;outline:none"><option value="1" selected>Mo</option><option value="2">Di</option><option value="3">Mi</option><option value="4">Do</option><option value="5">Fr</option><option value="6">Sa</option><option value="0">So</option></select><div class="time-wrap"><input type="number" class="xs" id="weekendEndH" min="0" max="23" value="5"><span class="time-sep">:</span><input type="number" class="xs" id="weekendEndM" min="0" max="59" value="0"></div><span class="unit">Uhr</span></div></div>
         </div>
         <div class="card">
           <div class="card-head"><div class="card-title">Schlaf-Vorschau</div></div>
           <div class="field" style="border:none;padding:14px 16px">
-            <div><div style="font-family:'IBM Plex Mono',monospace;font-size:28px;font-weight:600;color:#F59E0B" id="sleep-preview">—</div><div class="field-hint" style="margin-top:4px">Minuten bis zum nächsten aktiven Fenster</div></div>
+            <div><div style="font-family:'IBM Plex Mono',monospace;font-size:28px;font-weight:600;color:#F59E0B" id="sleep-preview">—</div><div class="field-hint" style="margin-top:4px" id="sleep-preview-hint">Schlafdauer bis zum nächsten Zeitfenster</div></div>
           </div>
         </div>
       </div>
@@ -351,6 +363,7 @@ function tog(key) {
   const on = el.classList.contains('on');
   const lbl = document.getElementById('lbl-' + key);
   if (lbl) lbl.textContent = on ? 'An' : 'Aus';
+  updateSleepPreview();
 }
 
 // ===== PASSWORD =====
@@ -464,35 +477,85 @@ setInterval(updateClock, 1000);
 updateClock();
 
 // ===== SLEEP PREVIEW =====
+function fmtMin(n) {
+  if (n >= 60) return Math.floor(n/60) + 'h ' + (n%60) + 'min';
+  return n + ' min';
+}
 function updateSleepPreview() {
   const el = document.getElementById('sleep-preview');
+  const hint = document.getElementById('sleep-preview-hint');
   if (!el) return;
-  const now = new Date();
-  const cur = now.getHours()*60 + now.getMinutes();
-  const max = parseInt(document.getElementById('sleepMaxMin')?.value || 120);
-  let min = Infinity;
+
+  const sleepEnabled = document.getElementById('toggle-sleep')?.classList.contains('on');
+  if (!sleepEnabled) {
+    el.textContent = '—';
+    if (hint) hint.textContent = 'Schlaf deaktiviert — Gerät bleibt wach';
+    return;
+  }
+
+  const now    = new Date();
+  const wday   = now.getDay();
+  const cur    = now.getHours()*60 + now.getMinutes();
+  const max    = parseInt(document.getElementById('sleepMaxMin')?.value) || 120;
+  const wdOnly = document.getElementById('toggle-wdonly')?.classList.contains('on');
+  const isWE   = (wday === 0 || wday === 6);
+
+  // Im Zeitfenster?
+  let inWindow = false;
+  if (!(wdOnly && isWE)) {
+    inWindow = windows.some(w => cur >= w.startH*60+w.startM && cur < w.endH*60+w.endM);
+  }
+  if (inWindow) {
+    el.textContent = 'aktiv';
+    if (hint) hint.textContent = 'Gerät ist gerade im Zeitfenster aktiv';
+    return;
+  }
+
+  // Wochenend-Schlaf-Fenster
+  const weSleepOn = document.getElementById('toggle-wesleep')?.classList.contains('on');
+  if (weSleepOn) {
+    const wsDay = +document.getElementById('weekendStartDay')?.value;
+    const wsH   = +document.getElementById('weekendStartH')?.value;
+    const wsM   = +document.getElementById('weekendStartM')?.value;
+    const weDay = +document.getElementById('weekendEndDay')?.value;
+    const weH   = +document.getElementById('weekendEndH')?.value;
+    const weM   = +document.getElementById('weekendEndM')?.value;
+    const curAbs   = wday*1440 + cur;
+    const startAbs = wsDay*1440 + wsH*60 + wsM;
+    const endAbs   = weDay*1440 + weH*60 + weM;
+    const inWE = (startAbs <= endAbs)
+      ? (curAbs >= startAbs && curAbs < endAbs)
+      : (curAbs >= startAbs || curAbs < endAbs);
+    if (inWE) {
+      let d = endAbs - curAbs;
+      if (d < 0) d += 7*1440;
+      el.textContent = fmtMin(d);
+      if (hint) hint.textContent = 'Wochenend-Schlaf aktiv — kein sleepMaxMin-Limit';
+      return;
+    }
+  }
+
+  // Normal: bis zum nächsten Zeitfenster-Start
+  let m = Infinity;
   windows.forEach(w => {
     let d = w.startH*60+w.startM - cur;
-    if (d <= 0) d += 24*60;
-    if (d < min) min = d;
+    if (d <= 0) d += 1440;
+    if (d < m) m = d;
   });
-  if (min === Infinity) min = 0;
-  min = Math.min(min, max);
-  el.textContent = min + ' min';
+  if (m === Infinity) m = 0;
+  m = Math.min(m, max);
+  el.textContent = fmtMin(m);
+  if (hint) hint.textContent = 'Schlafdauer bis zum nächsten Zeitfenster (max. ' + max + ' min)';
 }
 setInterval(updateSleepPreview, 5000);
 updateSleepPreview();
 
 // ===== LED SIM =====
 function simLed(state) {
-  const colors = {
-    ok:     ['#00FF00','Pünktlich'],
-    sm:     ['#00FFFF','Leichte Verspätung'],
-    big:    ['#8000FF','Starke Verspätung'],
-    cancel: ['#FF0000','Ausfall / Fehler'],
-    load:   ['#FF8000','Verbinden...'],
-  };
-  const [c, label] = colors[state] || colors.ok;
+  const colorIds = { ok:'ledOkColor', sm:'ledDelaySmallColor', big:'ledDelayBigColor', cancel:'ledCancelledColor', load:'ledLoadingColor' };
+  const labels   = { ok:'Pünktlich', sm:'Leichte Verspätung', big:'Starke Verspätung', cancel:'Ausfall / Fehler', load:'Verbinden...' };
+  const c = document.getElementById(colorIds[state] || 'ledOkColor')?.value || '#00FF00';
+  const label = labels[state] || 'Pünktlich';
   const dot = document.getElementById('led-dot');
   const lbl = document.getElementById('led-label');
   if (dot) { dot.style.background = c; dot.style.boxShadow = `0 0 10px ${c}88`; }
@@ -509,8 +572,42 @@ function syncStatus() {
   if (od) od.textContent = station.toUpperCase();
 }
 
+// ===== ESP-STATUS =====
+let _espOnline = null;
+async function checkEsp() {
+  const pill = document.getElementById('esp-pill');
+  const lbl  = document.getElementById('esp-pill-label');
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 3000);
+    const r = await fetch('/api/status', { signal: ctrl.signal });
+    clearTimeout(t);
+    if (r.ok) {
+      _espOnline = true;
+      pill.className = 'esp-pill online';
+      lbl.textContent = 'Online';
+      return;
+    }
+  } catch(_) {}
+  _espOnline = false;
+  pill.className = 'esp-pill offline';
+  lbl.textContent = 'Schläft';
+}
+checkEsp();
+setInterval(checkEsp, 5000);
+
 // ===== SAVE =====
 async function saveConfig() {
+  // ESP erreichbar?
+  if (_espOnline === false) {
+    const toast = document.getElementById('toast');
+    toast.textContent = '⚠ ESP schläft – nicht gespeichert';
+    toast.style.borderColor = '#F59E0B';
+    toast.classList.add('show');
+    setTimeout(() => { toast.classList.remove('show'); toast.textContent = '✓ Konfiguration gespeichert'; toast.style.borderColor = '#22C55E'; }, 2500);
+    return;
+  }
+
   // Validierung
   const dsm = +document.getElementById('delaySmallMin').value;
   const dbm = +document.getElementById('delayBigMin').value;
@@ -539,6 +636,7 @@ async function saveConfig() {
     destFilters:          filters,
     destFilterCount:      filters.length,
     sleepEnabled:         document.getElementById('toggle-sleep').classList.contains('on'),
+    weekendSleepEnabled:  document.getElementById('toggle-wesleep').classList.contains('on'),
     sleepFallbackS:       +document.getElementById('sleepFallbackS').value,
     sleepAfterS:          +document.getElementById('sleepAfterS').value,
     sleepMaxMin:          +document.getElementById('sleepMaxMin').value,
@@ -619,6 +717,7 @@ async function loadConfig() {
     setVal('ntpTimeoutS',         cfg.ntpTimeoutS);
     setVal('station',             cfg.station);
     setTog('sleep',               cfg.sleepEnabled);
+    setTog('wesleep',             cfg.weekendSleepEnabled);
     setVal('sleepFallbackS',      cfg.sleepFallbackS);
     setVal('sleepAfterS',         cfg.sleepAfterS);
     setVal('sleepMaxMin',         cfg.sleepMaxMin);

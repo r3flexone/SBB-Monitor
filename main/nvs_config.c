@@ -16,7 +16,7 @@ void nvs_config_defaults(blink_config_t *cfg) {
     cfg->timeWindows[0]     = (time_window_t){6, 45, 7, 0};
 
     // Button
-    cfg->buttonActiveMin    = 2;
+    cfg->buttonActiveMin    = 10;
     cfg->buttonLongPressMs  = 3000;
     cfg->buttonLongActiveMin= 10;
     cfg->buttonGpio         = 0;
@@ -35,6 +35,7 @@ void nvs_config_defaults(blink_config_t *cfg) {
     cfg->sleepFallbackS     = 300;
     cfg->sleepAfterS        = 300;
     cfg->sleepMaxMin        = 120;
+    cfg->weekendSleepEnabled= true;
     cfg->weekendStartDay    = 5;     // Fr
     cfg->weekendStartH      = 18;
     cfg->weekendStartM      = 0;
@@ -139,6 +140,7 @@ esp_err_t nvs_config_load(blink_config_t *cfg) {
     LI("sleepFbS",      sleepFallbackS)
     LI("sleepAfterS",   sleepAfterS)
     LI("sleepMaxMin",   sleepMaxMin)
+    LB("weSlpEn",       weekendSleepEnabled)
     LI("weStartDay",    weekendStartDay)
     LI("weStartH",      weekendStartH)
     LI("weStartM",      weekendStartM)
@@ -235,6 +237,7 @@ esp_err_t nvs_config_save(const blink_config_t *cfg) {
     SI("sleepFbS",      sleepFallbackS)
     SI("sleepAfterS",   sleepAfterS)
     SI("sleepMaxMin",   sleepMaxMin)
+    SB("weSlpEn",       weekendSleepEnabled)
     SI("weStartDay",    weekendStartDay)
     SI("weStartH",      weekendStartH)
     SI("weStartM",      weekendStartM)
@@ -280,6 +283,10 @@ esp_err_t nvs_config_save(const blink_config_t *cfg) {
 
     err = nvs_commit(h);
     nvs_close(h);
-    ESP_LOGI(TAG, "Config gespeichert");
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "NVS commit fehlgeschlagen: %s", esp_err_to_name(err));
+    } else {
+        ESP_LOGI(TAG, "Config gespeichert");
+    }
     return err;
 }

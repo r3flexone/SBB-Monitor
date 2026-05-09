@@ -363,14 +363,16 @@ void app_main(void) {
         check_window_overlaps();
     }
 
+    // Button-GPIO immer konfigurieren (für Halt-Erkennung und Sleep-Taste)
+    gpio_config_t btn = {
+        .pin_bit_mask = 1ULL << cfg.buttonGpio,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+    };
+    gpio_config(&btn);
+
     int button_active_min = cfg.buttonActiveMin;
     if (woken_by_button) {
-        gpio_config_t btn = {
-            .pin_bit_mask = 1ULL << cfg.buttonGpio,
-            .mode = GPIO_MODE_INPUT,
-            .pull_up_en = GPIO_PULLUP_ENABLE,
-        };
-        gpio_config(&btn);
         int hold_ms = 0;
         while (gpio_get_level(cfg.buttonGpio) == 0 &&
                hold_ms < cfg.buttonLongPressMs + 1000) {
@@ -422,7 +424,7 @@ void app_main(void) {
         }
     }
 
-    if (!in_window && !woken_by_button) {
+    if (!in_window && !woken_by_button && cfg.sleepEnabled) {
         int d;
         if (time_valid) {
             d = 24 * 60;
@@ -432,7 +434,7 @@ void app_main(void) {
                 if (diff <= 0) diff += 24 * 60;
                 if (diff < d) d = diff;
             }
-            if (cfg.weekdaysOnly && in_weekend_window(&ti, &cfg)) {
+            if (cfg.weekendSleepEnabled && in_weekend_window(&ti, &cfg)) {
                 int end_abs = cfg.weekendEndDay * 24 * 60 + cfg.weekendEndH * 60 + cfg.weekendEndM;
                 int cur_abs = ti.tm_wday * 24 * 60 + cur_min;
                 int d_weekend = end_abs - cur_abs;
@@ -445,7 +447,8 @@ void app_main(void) {
                 else              ESP_LOGI(TAG, "Schlafe %d Min", d);
             }
         } else {
-            d = 5;
+            d = cfg.sleepFallbackS / 60;
+            if (d < 1) d = 1;
         }
         show_sleep_info(d);
         go_to_sleep((uint64_t)d * 60ULL * 1000000ULL);
@@ -502,16 +505,31 @@ void app_main(void) {
     time_t cached_time = 0;
 
     bool inverted = false;
+    bool force_sleep = false;
+    // sleepEnabled=false: Schleife läuft unbegrenzt (bis Button-Sleep oder Sleep wird aktiviert)
+    bool run_forever = !cfg.sleepEnabled && !in_window && !woken_by_button;
     TickType_t next_invert = xTaskGetTickCount() +
         pdMS_TO_TICKS((uint32_t)(cfg.oledInvertMin > 0 ? cfg.oledInvertMin : 1440) * 60 * 1000);
 
-    while (xTaskGetTickCount() < active_end) {
+    while (!force_sleep && (run_forever || xTaskGetTickCount() < active_end)) {
         if (g_cfg_dirty) {
-            nvs_config_load(&cfg);
+            bool was_forever = run_forever;
+            esp_err_t load_err = nvs_config_load(&cfg);
             g_cfg_dirty = false;
+            if (load_err != ESP_OK) {
+                ESP_LOGE(TAG, "Config Reload fehlgeschlagen: %s", esp_err_to_name(load_err));
+            } else {
+                ESP_LOGI(TAG, "Config neu geladen (Web-Panel)");
+            }
+            run_forever = !cfg.sleepEnabled && !in_window && !woken_by_button;
+            if (was_forever && !run_forever) {
+                // Sleep wurde aktiviert → frischen buttonActiveMin-Timer starten
+                active_start = xTaskGetTickCount();
+                active_end   = active_start + pdMS_TO_TICKS((uint32_t)cfg.buttonActiveMin * 60 * 1000);
+                ESP_LOGI(TAG, "Sleep aktiviert → Timer %d Min", cfg.buttonActiveMin);
+            }
             for (int i = 0; i < 4; i++)
                 filter_ptrs[i] = (i < cfg.destFilterCount) ? cfg.destFilters[i] : NULL;
-            ESP_LOGI(TAG, "Config neu geladen (Web-Panel)");
         }
         sbb_wifi_reconnect();
 
@@ -566,7 +584,8 @@ void app_main(void) {
             draw_text(0, 32, "PRUEFE NETZ...");
             oled_flush();
         }
-        draw_countdown_bar(active_start, active_end);
+        { TickType_t _n = xTaskGetTickCount();
+          draw_countdown_bar(run_forever ? _n : active_start, run_forever ? _n + 1 : active_end); }
         flush_page7();
 
         // Adaptiver Refresh
@@ -604,7 +623,7 @@ void app_main(void) {
         TickType_t next_toggle = xTaskGetTickCount() + pdMS_TO_TICKS((uint32_t)cfg.ledErrorBlinkMs);
         TickType_t next_clock = xTaskGetTickCount() + pdMS_TO_TICKS(30 * 1000);
         TickType_t next_bar = xTaskGetTickCount() + pdMS_TO_TICKS(1000);
-        while (xTaskGetTickCount() < wait_end && xTaskGetTickCount() < active_end) {
+        while (xTaskGetTickCount() < wait_end && (run_forever || xTaskGetTickCount() < active_end)) {
             TickType_t t = xTaskGetTickCount();
             if (!success && cfg.ledErrorBlinkMs > 0 && t >= next_toggle) {
                 blink_on = !blink_on;
@@ -619,21 +638,30 @@ void app_main(void) {
             }
             if (has_cached && t >= next_clock) {
                 display_departures(last_deps, show_stale);
-                draw_countdown_bar(active_start, active_end);
+                draw_countdown_bar(run_forever ? t : active_start, run_forever ? t + 1 : active_end);
                 flush_page7();
                 next_clock = t + pdMS_TO_TICKS(30 * 1000);
             }
             if (t >= next_bar) {
-                draw_countdown_bar(active_start, active_end);
+                draw_countdown_bar(run_forever ? t : active_start, run_forever ? t + 1 : active_end);
                 flush_page7();
                 next_bar = t + pdMS_TO_TICKS(1000);
             }
+            // Button während aktivem Betrieb → sofort schlafen
+            if (gpio_get_level(cfg.buttonGpio) == 0) {
+                ESP_LOGI(TAG, "Button gedrückt → Schlaf");
+                force_sleep = true;
+                break;
+            }
+            // Config-Änderung → äußere Schleife sofort reagieren lassen
+            if (g_cfg_dirty) break;
             vTaskDelay(pdMS_TO_TICKS(100));
         }
+        if (force_sleep) break;
     }
 
     if (inverted) oled_cmd(0xA6);
     http_server_stop();
-    show_sleep_info(5);
-    go_to_sleep(5ULL * 60 * 1000000ULL);
+    show_sleep_info(cfg.sleepAfterS / 60);
+    go_to_sleep((uint64_t)cfg.sleepAfterS * 1000000ULL);
 }
