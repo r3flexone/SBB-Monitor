@@ -390,6 +390,7 @@ void app_main(void) {
     time_t now; struct tm ti;
     time(&now); localtime_r(&now, &ti);
     bool time_valid = (ti.tm_year >= 100);
+    bool ap_mode = false;
 
     if (!time_valid) {
         if (oled_ok) {
@@ -402,8 +403,11 @@ void app_main(void) {
         const char *wifi_ssid = cfg.ssid[0] ? cfg.ssid : WIFI_SSID;
         const char *wifi_pass = cfg.password[0] ? cfg.password : WIFI_PASS;
         sbb_wifi_init(wifi_ssid, wifi_pass);
-        time_valid = ntp_sync();
-        time(&now); localtime_r(&now, &ti);
+        ap_mode = sbb_wifi_is_ap_mode();
+        if (!ap_mode) {
+            time_valid = ntp_sync();
+            time(&now); localtime_r(&now, &ti);
+        }
     }
 
     int cur_min = ti.tm_hour * 60 + ti.tm_min;
@@ -424,7 +428,7 @@ void app_main(void) {
         }
     }
 
-    if (!in_window && !woken_by_button && cfg.sleepEnabled) {
+    if (!in_window && !woken_by_button && cfg.sleepEnabled && !ap_mode) {
         int d;
         if (time_valid) {
             d = 24 * 60;
@@ -470,16 +474,39 @@ void app_main(void) {
         const char *wifi_ssid = cfg.ssid[0] ? cfg.ssid : WIFI_SSID;
         const char *wifi_pass = cfg.password[0] ? cfg.password : WIFI_PASS;
         sbb_wifi_init(wifi_ssid, wifi_pass);
-        ntp_sync();
-        time(&now); localtime_r(&now, &ti);
-        cur_min = ti.tm_hour*60 + ti.tm_min;
+        ap_mode = sbb_wifi_is_ap_mode();
+        if (!ap_mode) {
+            ntp_sync();
+            time(&now); localtime_r(&now, &ti);
+            cur_min = ti.tm_hour*60 + ti.tm_min;
+        }
     }
 
     // mDNS + HTTP-Server (WiFi/netif bereits durch sbb_wifi_init aktiv)
-    mdns_init();
-    mdns_hostname_set("sbb-monitor");
-    mdns_instance_name_set("SBB Monitor");
+    if (!ap_mode) {
+        mdns_init();
+        mdns_hostname_set("sbb-monitor");
+        mdns_instance_name_set("SBB Monitor");
+    }
     http_server_start();
+
+    if (ap_mode) {
+        if (oled_ok) {
+            draw_header("KEIN WLAN", false);
+            draw_text(0, 20, "SSID: SBB-MONITOR");
+            draw_text(0, 32, "192.168.4.1");
+            draw_text(0, 44, "WLAN EINRICHTEN");
+            oled_flush();
+        }
+        led_set(cfg.ledLoadingRgb[0], cfg.ledLoadingRgb[1], cfg.ledLoadingRgb[2]);
+        while (!g_cfg_dirty) {
+            if (gpio_get_level(cfg.buttonGpio) == 0)
+                go_to_sleep(30 * 1000000ULL);
+            vTaskDelay(pdMS_TO_TICKS(200));
+        }
+        // Neue WLAN-Credentials gespeichert → neu starten
+        esp_restart();
+    }
 
     TickType_t active_start = xTaskGetTickCount();
     TickType_t active_end;

@@ -24,8 +24,29 @@ static EventGroupHandle_t wifi_event_group;
 static int retry_count = 0;
 static bool wifi_ready = false;
 static bool wifi_initialised = false;
+static bool wifi_ap_mode = false;
 static char *http_buf = NULL;
 static int  http_buf_len = 0;
+
+static void sbb_start_ap(void)
+{
+    esp_wifi_stop();
+    esp_netif_create_default_wifi_ap();
+    wifi_config_t ap_cfg = {
+        .ap = {
+            .ssid = "SBB-Monitor",
+            .ssid_len = 11,
+            .channel = 6,
+            .max_connection = 3,
+            .authmode = WIFI_AUTH_OPEN,
+        },
+    };
+    esp_wifi_set_mode(WIFI_MODE_AP);
+    esp_wifi_set_config(WIFI_IF_AP, &ap_cfg);
+    esp_wifi_start();
+    wifi_ap_mode = true;
+    ESP_LOGI(TAG, "AP-Modus aktiv: SSID=SBB-Monitor IP=192.168.4.1");
+}
 
 // ===== WiFi =====
 
@@ -91,8 +112,10 @@ void sbb_wifi_init(const char *ssid, const char *password)
                                            WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
                                            pdFALSE, pdFALSE, pdMS_TO_TICKS(15000));
     if (bits & WIFI_CONNECTED_BIT) ESP_LOGI(TAG, "WiFi OK");
-    else { ESP_LOGE(TAG, "WiFi Fehler!"); wifi_ready = false; }
+    else { ESP_LOGE(TAG, "WiFi Fehler!"); wifi_ready = false; sbb_start_ap(); }
 }
+
+bool sbb_wifi_is_ap_mode(void) { return wifi_ap_mode; }
 
 bool sbb_wifi_reconnect(void)
 {
