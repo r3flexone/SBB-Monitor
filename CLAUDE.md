@@ -5,7 +5,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project
 
 ESP32-S3 SBB (Swiss Federal Railways) Departure Monitor. The device:
-- Wakes from deep sleep on a schedule (active time window, e.g. 06:45–06:55) or via button press (GPIO 0).
+- Wakes from deep sleep on a schedule (active time window, default 06:45–07:00) or via button press (GPIO 0).
+- Falls back to AP mode (SSID `SBB-Monitor`, IP `192.168.4.1`) when no WiFi is reachable, for first-time setup or after a router change.
 - Fetches the next departures for a configured station from `transport.opendata.ch`.
 - Displays them on an SSD1306 128×64 I2C OLED and signals overall status via a WS2812 NeoPixel (worst-of-4 rule).
 - Returns to deep sleep to minimise battery usage.

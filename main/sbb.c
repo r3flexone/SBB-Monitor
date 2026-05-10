@@ -2,7 +2,6 @@
 #include "esp_log.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
-#include "nvs_flash.h"
 #include "esp_http_client.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -78,12 +77,6 @@ void sbb_wifi_init(const char *ssid, const char *password)
         return;
     }
     wifi_initialised = true;
-
-    esp_err_t ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        nvs_flash_erase();
-        nvs_flash_init();
-    }
 
     wifi_event_group = xEventGroupCreate();
     esp_netif_init();
