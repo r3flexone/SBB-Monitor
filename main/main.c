@@ -504,6 +504,8 @@ void app_main(void) {
                 go_to_sleep(30 * 1000000ULL);
             vTaskDelay(pdMS_TO_TICKS(200));
         }
+        // Kurze Pause damit die HTTP-Response noch ausgeliefert wird
+        vTaskDelay(pdMS_TO_TICKS(500));
         // Neue WLAN-Credentials gespeichert → neu starten
         esp_restart();
     }
