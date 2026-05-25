@@ -12,8 +12,11 @@ typedef struct {
     bool valid;             // true = Eintrag enthält Daten
 } SbbDeparture;
 
-// WiFi verbinden (einmal aufrufen)
+// WiFi verbinden (einmal aufrufen). Bei Fehler: AP-Modus starten.
 void sbb_wifi_init(const char *ssid, const char *password);
+
+// true wenn WiFi-Connect fehlschlug und Gerät im AP-Konfigurationsmodus läuft
+bool sbb_wifi_is_ap_mode(void);
 
 // WiFi neu verbinden falls Verbindung verloren (no-op wenn schon verbunden)
 bool sbb_wifi_reconnect(void);

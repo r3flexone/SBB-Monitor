@@ -196,7 +196,17 @@ static esp_err_t handler_config_post(httpd_req_t *req) {
 
     // Netzwerk
     GS("ssid",        ssid)
-    GS("password",    password)
+    // Passwort: nur überschreiben wenn nicht leer.
+    // GET sendet das Passwort aus Sicherheitsgründen nicht zurück, deshalb
+    // ist das Feld im UI nach dem Laden leer. Würden wir den leeren String
+    // übernehmen, würde jeder Save das bestehende Passwort löschen.
+    {
+        cJSON *v = cJSON_GetObjectItem(j, "password");
+        if (cJSON_IsString(v) && v->valuestring && v->valuestring[0]) {
+            strncpy(cfg.password, v->valuestring, sizeof(cfg.password) - 1);
+            cfg.password[sizeof(cfg.password) - 1] = '\0';
+        }
+    }
     GI("ntpTimeoutS", ntpTimeoutS)
     GS("station",     station)
 
