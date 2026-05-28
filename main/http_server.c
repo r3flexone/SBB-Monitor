@@ -1,11 +1,13 @@
 #include "http_server.h"
 #include "nvs_config.h"
+#include "sbb.h"
 #include "cJSON.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "esp_spiffs.h"
 #include <string.h>
 #include <stdio.h>
+#include <time.h>
 
 static const char *TAG = "http_server";
 static httpd_handle_t server = NULL;
@@ -295,9 +297,20 @@ static esp_err_t handler_config_post(httpd_req_t *req) {
 
 // ===== GET /api/status =====
 static esp_err_t handler_status_get(httpd_req_t *req) {
+    // Echte Werte: wifi = im STA-Modus verbunden (kein AP-Fallback),
+    // ntp = gueltige Systemzeit vorhanden (tm_year >= 100 == ab Jahr 2000).
+    bool wifi = !sbb_wifi_is_ap_mode();
+    time_t now; struct tm ti;
+    time(&now); localtime_r(&now, &ti);
+    bool ntp = (ti.tm_year >= 100);
+
+    char body[40];
+    snprintf(body, sizeof(body), "{\"wifi\":%s,\"ntp\":%s}",
+             wifi ? "true" : "false", ntp ? "true" : "false");
+
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-    httpd_resp_sendstr(req, "{\"wifi\":true,\"ntp\":true}");
+    httpd_resp_sendstr(req, body);
     return ESP_OK;
 }
 

@@ -11,7 +11,7 @@ static const char *TAG = "nvs_config";
 void nvs_config_defaults(blink_config_t *cfg) {
     memset(cfg, 0, sizeof(*cfg));
 
-    // Zeitfenster: 1 Fenster 06:45–06:55
+    // Zeitfenster: 1 Fenster 06:45–07:00
     cfg->timeWindowCount    = 1;
     cfg->timeWindows[0]     = (time_window_t){6, 45, 7, 0};
 

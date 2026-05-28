@@ -321,13 +321,17 @@ static void check_window_overlaps(void) {
     for (int i = 0; i < cfg.timeWindowCount; i++) {
         int s1 = cfg.timeWindows[i].startH * 60 + cfg.timeWindows[i].startM;
         int e1 = cfg.timeWindows[i].endH * 60 + cfg.timeWindows[i].endM;
-        if (e1 <= s1) {
-            ESP_LOGW(TAG, "Zeitfenster %d: Ende vor Start!", i + 1);
+        // e1 < s1 ist ein gewolltes Fenster über Mitternacht; nur e1 == s1 ist leer.
+        if (e1 == s1) {
+            ESP_LOGW(TAG, "Zeitfenster %d: Laenge 0!", i + 1);
         }
+        bool wrap1 = (e1 <= s1);
         for (int j = i + 1; j < cfg.timeWindowCount; j++) {
             int s2 = cfg.timeWindows[j].startH * 60 + cfg.timeWindows[j].startM;
             int e2 = cfg.timeWindows[j].endH * 60 + cfg.timeWindows[j].endM;
-            if (s1 < e2 && s2 < e1) {
+            bool wrap2 = (e2 <= s2);
+            // Overlap-Pruefung gilt nur fuer zwei nicht-umschlagende Fenster.
+            if (!wrap1 && !wrap2 && s1 < e2 && s2 < e1) {
                 ESP_LOGW(TAG, "Zeitfenster %d und %d ueberlappen!", i + 1, j + 1);
             }
         }
@@ -352,8 +356,10 @@ void app_main(void) {
     }
     nvs_config_load(&cfg);
 
-    uint32_t wakeup = esp_sleep_get_wakeup_causes();
-    bool woken_by_button = (wakeup & BIT(ESP_SLEEP_WAKEUP_EXT1)) != 0;
+    // Singular-API: auf allen ESP-IDF v5.x verfügbar. ESP_SLEEP_WAKEUP_UNDEFINED == 0
+    // (Kaltstart), daher bleiben die wakeup==0 / !=0 Prüfungen weiter unten gültig.
+    esp_sleep_wakeup_cause_t wakeup = esp_sleep_get_wakeup_cause();
+    bool woken_by_button = (wakeup == ESP_SLEEP_WAKEUP_EXT1);
 
     led_init();
     oled_init_display();
@@ -414,15 +420,23 @@ void app_main(void) {
     bool is_weekend = (ti.tm_wday == 0 || ti.tm_wday == 6);
     bool weekend_skip = cfg.weekdaysOnly && is_weekend;
 
-    int active_end_min = 0;
+    int active_rem_min = 0;   // Minuten bis zum Fenster-Ende (wrap-fähig)
     bool in_window = false;
     if (time_valid && !weekend_skip) {
         for (int i = 0; i < cfg.timeWindowCount; i++) {
             int ws = cfg.timeWindows[i].startH * 60 + cfg.timeWindows[i].startM;
             int we = cfg.timeWindows[i].endH * 60 + cfg.timeWindows[i].endM;
-            if (cur_min >= ws && cur_min < we) {
+            bool inside;
+            if (we > ws) {                 // normales Fenster innerhalb eines Tages
+                inside = (cur_min >= ws && cur_min < we);
+            } else {                       // Fenster über Mitternacht (we <= ws)
+                inside = (cur_min >= ws || cur_min < we);
+            }
+            if (inside) {
                 in_window = true;
-                active_end_min = we;
+                int rem = we - cur_min;
+                if (rem <= 0) rem += 24 * 60;   // Ende liegt am Folgetag
+                active_rem_min = rem;
                 break;
             }
         }
@@ -515,7 +529,7 @@ void app_main(void) {
     if (woken_by_button) {
         active_end = active_start + pdMS_TO_TICKS((uint32_t)button_active_min * 60 * 1000);
     } else {
-        int rem = active_end_min - cur_min;
+        int rem = active_rem_min;
         if (rem < 1) rem = 1;
         active_end = active_start + pdMS_TO_TICKS((uint32_t)rem * 60 * 1000);
     }
