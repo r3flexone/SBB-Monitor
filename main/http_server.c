@@ -149,7 +149,9 @@ static esp_err_t handler_config_get(httpd_req_t *req) {
 
 // ===== POST /api/config =====
 static esp_err_t handler_config_post(httpd_req_t *req) {
-    char buf[4096];
+    // static: 4 KB passen schlecht in den 8-KB-httpd-Stack; der Server
+    // verarbeitet Requests sequentiell, daher kein Race.
+    static char buf[4096];
     int len = httpd_req_recv(req, buf, sizeof(buf) - 1);
     if (len <= 0) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Empty body");
@@ -170,6 +172,10 @@ static esp_err_t handler_config_post(httpd_req_t *req) {
     #define GB(key, field) { cJSON *v=cJSON_GetObjectItem(j,key); if(cJSON_IsBool(v))   cfg.field=cJSON_IsTrue(v); }
     #define GS(key, field) { cJSON *v=cJSON_GetObjectItem(j,key); if(cJSON_IsString(v)&&v->valuestring) { strncpy(cfg.field,v->valuestring,sizeof(cfg.field)-1); cfg.field[sizeof(cfg.field)-1]='\0'; } }
     #define GRGB(key, arr) { cJSON *v=cJSON_GetObjectItem(j,key); if(cJSON_IsString(v)&&v->valuestring) hex_to_rgb(v->valuestring,cfg.arr); }
+    // GPIO nur in gültigem Bereich übernehmen — ein Tippfehler im Panel darf
+    // das Gerät nicht in einen Panic-Boot-Loop schicken (ESP32-S3: GPIO 0–48,
+    // Button braucht RTC-GPIO 0–21 für den Deep-Sleep-Wakeup).
+    #define GGPIO(key, field, maxg) { cJSON *v=cJSON_GetObjectItem(j,key); if(cJSON_IsNumber(v)) { int g=(int)v->valuedouble; if(g>=0&&g<=(maxg)) cfg.field=g; else ESP_LOGW(TAG,"%s: GPIO %d ungueltig, behalte %d",key,g,cfg.field); } }
 
     // Zeitfenster-Array
     cJSON *tws = cJSON_GetObjectItem(j, "timeWindows");
@@ -191,10 +197,10 @@ static esp_err_t handler_config_post(httpd_req_t *req) {
     }
 
     // Button
-    GI("buttonActiveMin",       buttonActiveMin)
+    GI("buttonActiveMin",     buttonActiveMin)
     GI("buttonLongPressMs",   buttonLongPressMs)
     GI("buttonLongActiveMin", buttonLongActiveMin)
-    GI("buttonGpio",          buttonGpio)
+    GGPIO("buttonGpio",       buttonGpio, 21)
 
     // Netzwerk
     GS("ssid",        ssid)
@@ -234,9 +240,9 @@ static esp_err_t handler_config_post(httpd_req_t *req) {
     GI("sleepMaxMin",    sleepMaxMin)
 
     // Hardware
-    GI("ledGpio",      ledGpio)
-    GI("sdaGpio",      sdaGpio)
-    GI("sclGpio",      sclGpio)
+    GGPIO("ledGpio",   ledGpio, 48)
+    GGPIO("sdaGpio",   sdaGpio, 48)
+    GGPIO("sclGpio",   sclGpio, 48)
     GS("oledAddr",     oledAddr)
     GI("oledInvertMin",oledInvertMin)
 

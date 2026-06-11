@@ -12,6 +12,7 @@
 #include "sbb.h"
 #include "secrets.h"
 #include "driver/gpio.h"
+#include "driver/rtc_io.h"
 #include "esp_chip_info.h"
 #include "esp_system.h"
 #include "nvs_config.h"
@@ -32,15 +33,43 @@ volatile bool g_cfg_dirty = false;
 
 // ===== NEOPIXEL =====
 static led_strip_handle_t led_strip;
+static bool led_ok = false;
 static void led_init(void) {
     led_strip_config_t s = { .strip_gpio_num = cfg.ledGpio, .max_leds = 1 };
     led_strip_rmt_config_t r = { .resolution_hz = 10*1000*1000, .flags.with_dma = false };
-    ESP_ERROR_CHECK(led_strip_new_rmt_device(&s, &r, &led_strip));
+    // Kein ESP_ERROR_CHECK: ein ungültiger ledGpio aus der NVS-Config würde
+    // sonst einen Panic-Boot-Loop erzeugen, der nur per Flash-Erase endet.
+    esp_err_t err = led_strip_new_rmt_device(&s, &r, &led_strip);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "LED init fehlgeschlagen (GPIO %d): %s",
+                 cfg.ledGpio, esp_err_to_name(err));
+        return;
+    }
+    led_ok = true;
     led_strip_clear(led_strip);
 }
 static void led_set(uint8_t r, uint8_t g, uint8_t b) {
+    if (!led_ok) return;
     led_strip_set_pixel(led_strip, 0, r/16, g/16, b/16);
     led_strip_refresh(led_strip);
+}
+// Schlimmster Status aller 4 gültigen Züge: Ausfall > grosse > kleine Verspätung > OK
+static void led_show_worst_status(const SbbDeparture deps[4]) {
+    int worst = 0;
+    for (int i = 0; i < 4; i++) {
+        if (!deps[i].valid) continue;
+        int s = 0;
+        if (deps[i].cancelled)                       s = 3;
+        else if (deps[i].delay >= cfg.delayBigMin)   s = 2;
+        else if (deps[i].delay >= cfg.delaySmallMin) s = 1;
+        if (s > worst) worst = s;
+    }
+    switch (worst) {
+        case 3:  led_set(cfg.ledCancelledRgb[0],  cfg.ledCancelledRgb[1],  cfg.ledCancelledRgb[2]);  break;
+        case 2:  led_set(cfg.ledDelayBigRgb[0],   cfg.ledDelayBigRgb[1],   cfg.ledDelayBigRgb[2]);   break;
+        case 1:  led_set(cfg.ledDelaySmallRgb[0], cfg.ledDelaySmallRgb[1], cfg.ledDelaySmallRgb[2]); break;
+        default: led_set(cfg.ledOkRgb[0],         cfg.ledOkRgb[1],         cfg.ledOkRgb[2]);         break;
+    }
 }
 
 // ===== OLED =====
@@ -49,6 +78,7 @@ static uint8_t framebuffer[OLED_WIDTH * OLED_HEIGHT / 8];
 static bool oled_ok = false;
 
 static void oled_cmd(uint8_t cmd) {
+    if (!oled_dev) return;   // OLED-Init fehlgeschlagen oder noch nicht erfolgt
     uint8_t buf[2] = {0x00, cmd};
     i2c_master_transmit(oled_dev, buf, 2, 100);
 }
@@ -253,16 +283,41 @@ static void flush_page7(void) {
     i2c_master_transmit(oled_dev, buf, sizeof(buf), 100);
 }
 
+// Countdown-Balken aktualisieren und nur Page 7 flushen.
+// Bei run_forever bleibt der Balken voll (total=1, remaining=1).
+static void redraw_bar(bool run_forever, TickType_t active_start, TickType_t active_end) {
+    TickType_t t = xTaskGetTickCount();
+    draw_countdown_bar(run_forever ? t : active_start, run_forever ? t + 1 : active_end);
+    flush_page7();
+}
+
 // ===== SLEEP =====
 static void go_to_sleep(uint64_t us) {
     memset(framebuffer, 0, sizeof(framebuffer));
     oled_flush();
     if (oled_ok) oled_cmd(0xAE);
-    led_strip_clear(led_strip); led_strip_refresh(led_strip);
+    if (led_ok) { led_strip_clear(led_strip); led_strip_refresh(led_strip); }
     vTaskDelay(pdMS_TO_TICKS(100));
     esp_sleep_enable_timer_wakeup(us);
-    esp_sleep_enable_ext1_wakeup(1ULL << cfg.buttonGpio, ESP_EXT1_WAKEUP_ANY_LOW);
+    // Interner Pullup gilt im Deep Sleep nur über die RTC-Domain — ohne
+    // externen Pullup würde der Button-Pin sonst floaten (Geister-Wakeups).
+    if (rtc_gpio_is_valid_gpio(cfg.buttonGpio)) {
+        rtc_gpio_pullup_en(cfg.buttonGpio);
+        rtc_gpio_pulldown_dis(cfg.buttonGpio);
+        esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);
+        esp_sleep_enable_ext1_wakeup(1ULL << cfg.buttonGpio, ESP_EXT1_WAKEUP_ANY_LOW);
+    } else {
+        ESP_LOGW(TAG, "GPIO %d ist kein RTC-GPIO — kein Button-Wakeup", cfg.buttonGpio);
+    }
     esp_deep_sleep_start();
+}
+
+// ===== WIFI =====
+// NVS-Credentials, mit secrets.h als Compile-Time-Fallback
+static void wifi_connect_from_cfg(void) {
+    const char *ssid = cfg.ssid[0]     ? cfg.ssid     : WIFI_SSID;
+    const char *pass = cfg.password[0] ? cfg.password : WIFI_PASS;
+    sbb_wifi_init(ssid, pass);
 }
 
 // ===== NTP =====
@@ -406,9 +461,7 @@ void app_main(void) {
             oled_flush();
         }
         led_set(cfg.ledLoadingRgb[0], cfg.ledLoadingRgb[1], cfg.ledLoadingRgb[2]);
-        const char *wifi_ssid = cfg.ssid[0] ? cfg.ssid : WIFI_SSID;
-        const char *wifi_pass = cfg.password[0] ? cfg.password : WIFI_PASS;
-        sbb_wifi_init(wifi_ssid, wifi_pass);
+        wifi_connect_from_cfg();
         ap_mode = sbb_wifi_is_ap_mode();
         if (!ap_mode) {
             time_valid = ntp_sync();
@@ -485,9 +538,7 @@ void app_main(void) {
     led_set(cfg.ledLoadingRgb[0], cfg.ledLoadingRgb[1], cfg.ledLoadingRgb[2]);
 
     if (wakeup != 0) {
-        const char *wifi_ssid = cfg.ssid[0] ? cfg.ssid : WIFI_SSID;
-        const char *wifi_pass = cfg.password[0] ? cfg.password : WIFI_PASS;
-        sbb_wifi_init(wifi_ssid, wifi_pass);
+        wifi_connect_from_cfg();
         ap_mode = sbb_wifi_is_ap_mode();
         if (!ap_mode) {
             ntp_sync();
@@ -514,8 +565,10 @@ void app_main(void) {
         }
         led_set(cfg.ledLoadingRgb[0], cfg.ledLoadingRgb[1], cfg.ledLoadingRgb[2]);
         while (!g_cfg_dirty) {
+            // Button im AP-Modus: sleepFallbackS schlafen statt fixer 30 s —
+            // ein kurzer Zyklus würde sonst nur AP→Sleep→AP im Minutentakt kosten.
             if (gpio_get_level(cfg.buttonGpio) == 0)
-                go_to_sleep(30 * 1000000ULL);
+                go_to_sleep((uint64_t)cfg.sleepFallbackS * 1000000ULL);
             vTaskDelay(pdMS_TO_TICKS(200));
         }
         // Kurze Pause damit die HTTP-Response noch ausgeliefert wird
@@ -597,23 +650,8 @@ void app_main(void) {
             }
         }
 
-        // LED: schlimmster Status aller 4 Züge
         if (success) {
-            int worst = 0;
-            for (int i = 0; i < 4; i++) {
-                if (!deps[i].valid) continue;
-                int s = 0;
-                if (deps[i].cancelled)                        s = 3;
-                else if (deps[i].delay >= cfg.delayBigMin)   s = 2;
-                else if (deps[i].delay >= cfg.delaySmallMin) s = 1;
-                if (s > worst) worst = s;
-            }
-            switch (worst) {
-                case 3:  led_set(cfg.ledCancelledRgb[0],  cfg.ledCancelledRgb[1],  cfg.ledCancelledRgb[2]);  break;
-                case 2:  led_set(cfg.ledDelayBigRgb[0],   cfg.ledDelayBigRgb[1],   cfg.ledDelayBigRgb[2]);   break;
-                case 1:  led_set(cfg.ledDelaySmallRgb[0], cfg.ledDelaySmallRgb[1], cfg.ledDelaySmallRgb[2]); break;
-                default: led_set(cfg.ledOkRgb[0],         cfg.ledOkRgb[1],         cfg.ledOkRgb[2]);         break;
-            }
+            led_show_worst_status(deps);
         } else {
             led_set(cfg.ledCancelledRgb[0], cfg.ledCancelledRgb[1], cfg.ledCancelledRgb[2]);
         }
@@ -627,9 +665,7 @@ void app_main(void) {
             draw_text(0, 32, "PRUEFE NETZ...");
             oled_flush();
         }
-        { TickType_t _n = xTaskGetTickCount();
-          draw_countdown_bar(run_forever ? _n : active_start, run_forever ? _n + 1 : active_end); }
-        flush_page7();
+        redraw_bar(run_forever, active_start, active_end);
 
         // Adaptiver Refresh
         int refresh_sec;
@@ -641,8 +677,9 @@ void app_main(void) {
                 if (!deps[i].valid || deps[i].cancelled) continue;
                 int h, m;
                 if (sscanf(deps[i].time, "%d:%d", &h, &m) == 2) {
-                    int diff = (h * 60 + m + deps[i].delay) - cur_m;
-                    if (diff >= 0 && (min_to_next < 0 || diff < min_to_next))
+                    // Wrap-fähig: Zug nach Mitternacht zählt als zukünftig (≤ 12 h)
+                    int diff = ((h * 60 + m + deps[i].delay) - cur_m + 24 * 60) % (24 * 60);
+                    if (diff <= 12 * 60 && (min_to_next < 0 || diff < min_to_next))
                         min_to_next = diff;
                 }
             }
@@ -681,13 +718,11 @@ void app_main(void) {
             }
             if (has_cached && t >= next_clock) {
                 display_departures(last_deps, show_stale);
-                draw_countdown_bar(run_forever ? t : active_start, run_forever ? t + 1 : active_end);
-                flush_page7();
+                redraw_bar(run_forever, active_start, active_end);
                 next_clock = t + pdMS_TO_TICKS(30 * 1000);
             }
             if (t >= next_bar) {
-                draw_countdown_bar(run_forever ? t : active_start, run_forever ? t + 1 : active_end);
-                flush_page7();
+                redraw_bar(run_forever, active_start, active_end);
                 next_bar = t + pdMS_TO_TICKS(1000);
             }
             // Button während aktivem Betrieb → sofort schlafen

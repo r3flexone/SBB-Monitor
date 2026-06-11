@@ -55,6 +55,8 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
     if (base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
     } else if (base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        // Sonst meldet sbb_wifi_reconnect() weiter "verbunden" und tut nichts
+        wifi_ready = false;
         if (retry_count < MAX_RETRY) {
             esp_wifi_connect();
             retry_count++;
@@ -356,9 +358,14 @@ bool sbb_get_departures(const char *station, SbbDeparture results[DEP_COUNT],
     if (filter_count > 0) ESP_LOGI(TAG, "Filter: %d/%d Züge passen", n, total_trains);
     if (n == 0) return false;
 
+    // Wrap-fähiger Vergleich: ein Zug gilt als zukünftig, wenn er innerhalb
+    // der nächsten 12 h liegt (modulo Tag). Sonst würde um 23:50 ein
+    // 00:05-Zug als "vergangen" verworfen.
     int target_idx = -1;
     for (int i = 0; i < n; i++) {
-        if (entries[i].minutes >= target_min) { target_idx = i; break; }
+        if (entries[i].minutes < 0) continue;
+        int fwd = (entries[i].minutes - target_min + 24 * 60) % (24 * 60);
+        if (fwd <= 12 * 60) { target_idx = i; break; }
     }
     if (target_idx < 0) {
         ESP_LOGW(TAG, "Alle %d Züge in der Vergangenheit (cur=%02d:%02d)",

@@ -113,7 +113,7 @@ esp_err_t nvs_config_load(blink_config_t *cfg) {
     }
 
     // Button
-    LI("btnActiveMin",    buttonActiveMin)
+    LI("btnActiveMin",  buttonActiveMin)
     LI("btnLongMs",     buttonLongPressMs)
     LI("btnLongMin",    buttonLongActiveMin)
     LI("btnGpio",       buttonGpio)
@@ -213,7 +213,7 @@ esp_err_t nvs_config_save(const blink_config_t *cfg) {
     }
 
     // Button
-    SI("btnActiveMin",    buttonActiveMin)
+    SI("btnActiveMin",  buttonActiveMin)
     SI("btnLongMs",     buttonLongPressMs)
     SI("btnLongMin",    buttonLongActiveMin)
     SI("btnGpio",       buttonGpio)

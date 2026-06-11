@@ -3,9 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Blink — Konfiguration</title>
+<title>SBB-Monitor — Konfiguration</title>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
+/* Kein Webfont-Import: im AP-Modus gibt es kein Internet, der Request würde
+   das Rendern nur verzögern. Die font-family-Listen fallen auf Systemfonts zurück. */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;font-family:'IBM Plex Sans',system-ui,sans-serif;background:#0C0F14;color:#E2E8F0;-webkit-font-smoothing:antialiased}
 input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none}
@@ -102,7 +103,7 @@ input[type=color]{width:36px;height:28px;padding:2px;border-radius:4px;border:1p
     <div class="brand">
       <div class="brand-icon">⚡</div>
       <div>
-        <div class="brand-name">Blink</div>
+        <div class="brand-name">SBB-Monitor</div>
         <div class="brand-sub">ESP32 Konfiguration</div>
       </div>
     </div>
@@ -130,7 +131,7 @@ input[type=color]{width:36px;height:28px;padding:2px;border-radius:4px;border:1p
       <button class="nav-btn" onclick="show('verhalten',this)"><span class="nav-icon">⚙️</span><div><div class="nav-text">Verhalten</div><div class="nav-desc">Logik & Schwellen</div></div></button>
       <button class="nav-btn" onclick="show('hardware',this)"><span class="nav-icon">🔌</span><div><div class="nav-text">Hardware</div><div class="nav-desc">GPIO & OLED</div></div></button>
       <button class="nav-btn" onclick="show('status',this)"><span class="nav-icon">📊</span><div><div class="nav-text">Status</div><div class="nav-desc">Live-Ansicht</div></div></button>
-      <div class="sidebar-footer">r3flexone/blink<br>ESP32-S3 · IDF v5.x</div>
+      <div class="sidebar-footer">r3flexone/SBB-Monitor<br>ESP32-S3 · IDF v5.x</div>
     </nav>
 
     <main>
@@ -322,7 +323,7 @@ input[type=color]{width:36px;height:28px;padding:2px;border-radius:4px;border:1p
           </div>
           <div class="status-card">
             <div class="status-card-title">WLAN</div>
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:16px">📶</span><span style="font-size:13px;color:#22C55E;font-weight:600">Verbunden</span></div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:16px">📶</span><span id="wifi-label" style="font-size:13px;color:#64748B;font-weight:600">Unbekannt</span></div>
             <div style="font-size:12px;color:#94A3B8;font-family:'IBM Plex Mono',monospace" id="status-ssid">—</div>
             <div style="font-size:11px;color:#64748B;margin-top:4px">NTP: pool.ntp.org</div>
           </div>
@@ -372,14 +373,26 @@ function togglePass() {
   p.type = p.type === 'password' ? 'text' : 'password';
 }
 
-// ===== NTP TEST =====
-function testNtp() {
-  document.getElementById('ntp-dot').style.background = '#F59E0B';
-  document.getElementById('ntp-txt').textContent = 'Verbinde...';
-  setTimeout(() => {
-    document.getElementById('ntp-dot').style.background = '#22C55E';
-    document.getElementById('ntp-txt').textContent = 'Sync OK';
-  }, 1600);
+// ===== NTP TEST (echt, via /api/status) =====
+async function testNtp() {
+  const dot = document.getElementById('ntp-dot');
+  const txt = document.getElementById('ntp-txt');
+  dot.style.background = '#F59E0B';
+  txt.textContent = 'Prüfe...';
+  try {
+    const r = await fetch('/api/status');
+    const s = await r.json();
+    if (s.ntp) {
+      dot.style.background = '#22C55E';
+      txt.textContent = 'Sync OK — Systemzeit gültig';
+    } else {
+      dot.style.background = '#EF4444';
+      txt.textContent = 'Keine gültige Zeit (NTP fehlgeschlagen)';
+    }
+  } catch(e) {
+    dot.style.background = '#EF4444';
+    txt.textContent = 'ESP nicht erreichbar';
+  }
 }
 
 // ===== ZEITFENSTER (dynamisch) =====
@@ -422,16 +435,27 @@ function removeWindow(i) {
 
 function pad(n) { return String(n).padStart(2,'0'); }
 
+// Wrap-fähige Fensterprüfung, identisch zur Firmware (Ende <= Start = über Mitternacht)
+function inWindowAt(cur, w) {
+  const s = w.startH*60+w.startM, e = w.endH*60+w.endM;
+  return e > s ? (cur >= s && cur < e) : (cur >= s || cur < e);
+}
+
 function checkOverlap() {
+  // Wie in der Firmware (check_window_overlaps): Fenster über Mitternacht
+  // (Ende <= Start) sind gewollt und werden nicht als Overlap markiert.
   for (let i = 0; i < windows.length; i++) {
     const a = windows[i];
     const aS = a.startH*60+a.startM, aE = a.endH*60+a.endM;
     let overlap = false;
-    for (let j = 0; j < windows.length; j++) {
-      if (i === j) continue;
-      const b = windows[j];
-      const bS = b.startH*60+b.startM, bE = b.endH*60+b.endM;
-      if (aS < bE && aE > bS) { overlap = true; break; }
+    if (aE > aS) {
+      for (let j = 0; j < windows.length; j++) {
+        if (i === j) continue;
+        const b = windows[j];
+        const bS = b.startH*60+b.startM, bE = b.endH*60+b.endM;
+        if (bE <= bS) continue;
+        if (aS < bE && aE > bS) { overlap = true; break; }
+      }
     }
     const w = document.getElementById('warn-'+i);
     if (w) w.style.display = overlap ? 'inline-flex' : 'none';
@@ -462,7 +486,7 @@ function updateClock() {
   document.getElementById('clock').textContent =
     [now.getHours(),now.getMinutes(),now.getSeconds()].map(n=>pad(n)).join(':');
   const cur = now.getHours()*60 + now.getMinutes();
-  const inW = windows.some(w => cur >= w.startH*60+w.startM && cur < w.endH*60+w.endM);
+  const inW = windows.some(w => inWindowAt(cur, w));
   const dot = document.getElementById('win-dot');
   const lbl = document.getElementById('win-label');
   if (dot) { dot.style.background = inW ? '#22C55E' : '#64748B'; }
@@ -503,7 +527,7 @@ function updateSleepPreview() {
   // Im Zeitfenster?
   let inWindow = false;
   if (!(wdOnly && isWE)) {
-    inWindow = windows.some(w => cur >= w.startH*60+w.startM && cur < w.endH*60+w.endM);
+    inWindow = windows.some(w => inWindowAt(cur, w));
   }
   if (inWindow) {
     el.textContent = 'aktiv';
@@ -586,12 +610,20 @@ async function checkEsp() {
       _espOnline = true;
       pill.className = 'esp-pill online';
       lbl.textContent = 'Online';
+      const s = await r.json();
+      setWifiLabel(s.wifi ? 'Verbunden' : 'AP-Modus (kein WLAN)',
+                   s.wifi ? '#22C55E' : '#F59E0B');
       return;
     }
   } catch(_) {}
   _espOnline = false;
   pill.className = 'esp-pill offline';
   lbl.textContent = 'Schläft';
+  setWifiLabel('Nicht erreichbar', '#64748B');
+}
+function setWifiLabel(text, color) {
+  const w = document.getElementById('wifi-label');
+  if (w) { w.textContent = text; w.style.color = color; }
 }
 checkEsp();
 setInterval(checkEsp, 5000);
