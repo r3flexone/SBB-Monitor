@@ -28,6 +28,10 @@ static blink_config_t cfg;
 // Gesetzt vom HTTP-Server nach erfolgreichem POST /api/config
 volatile bool g_cfg_dirty = false;
 
+// Für GET /api/departures (Deklaration in http_server.h)
+SbbDeparture g_last_deps[4];
+time_t g_last_deps_time = 0;
+
 #define OLED_WIDTH  128
 #define OLED_HEIGHT  64
 
@@ -643,6 +647,8 @@ void app_main(void) {
             memcpy(last_deps, deps, sizeof(deps));
             has_cached = true;
             time(&cached_time);
+            memcpy(g_last_deps, deps, sizeof(g_last_deps));
+            g_last_deps_time = cached_time;
         } else {
             time_t n; time(&n);
             if (has_cached && (n - cached_time) < cfg.staleMaxMin * 60) {

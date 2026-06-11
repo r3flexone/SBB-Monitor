@@ -123,6 +123,7 @@ esp_err_t nvs_config_load(blink_config_t *cfg) {
     LS("password",      password)
     LI("ntpTimeoutS",   ntpTimeoutS)
     LS("station",       station)
+    LS("panelPass",     panelPass)
 
     // Ziel-Filter
     LI("filtCount",     destFilterCount)
@@ -223,6 +224,7 @@ esp_err_t nvs_config_save(const blink_config_t *cfg) {
     SS("password",      password)
     SI("ntpTimeoutS",   ntpTimeoutS)
     SS("station",       station)
+    SS("panelPass",     panelPass)
 
     // Ziel-Filter
     SI("filtCount",     destFilterCount)

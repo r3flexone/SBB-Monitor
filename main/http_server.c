@@ -5,12 +5,61 @@
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "esp_spiffs.h"
+#include "esp_system.h"
+#include "nvs.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "mbedtls/base64.h"
 #include <string.h>
 #include <stdio.h>
 #include <time.h>
 
 static const char *TAG = "http_server";
 static httpd_handle_t server = NULL;
+
+// ===== Optionaler Panel-Login (HTTP Basic Auth) =====
+// Leer = kein Login (Default fürs Heimnetz). Wird beim Serverstart aus NVS
+// geladen und nach jedem Config-Save aktualisiert. Achtung: läuft über
+// unverschlüsseltes HTTP — schützt vor Mitbewohnern, nicht vor Angreifern.
+static char panel_pass[32] = "";
+
+static void panel_pass_load(void) {
+    nvs_handle_t h;
+    panel_pass[0] = 0;
+    // Namespace wie in nvs_config.c (NVS_NS)
+    if (nvs_open("blink_cfg", NVS_READONLY, &h) == ESP_OK) {
+        size_t len = sizeof(panel_pass);
+        if (nvs_get_str(h, "panelPass", panel_pass, &len) != ESP_OK)
+            panel_pass[0] = 0;
+        nvs_close(h);
+    }
+}
+
+static bool auth_ok(httpd_req_t *req) {
+    if (!panel_pass[0]) return true;
+    char hdr[160];
+    if (httpd_req_get_hdr_value_str(req, "Authorization", hdr, sizeof(hdr)) != ESP_OK)
+        return false;
+    if (strncmp(hdr, "Basic ", 6) != 0) return false;
+    unsigned char dec[96];
+    size_t dlen = 0;
+    if (mbedtls_base64_decode(dec, sizeof(dec) - 1, &dlen,
+                              (const unsigned char *)hdr + 6, strlen(hdr) - 6) != 0)
+        return false;
+    dec[dlen] = 0;
+    const char *colon = strchr((const char *)dec, ':');   // "user:pass", User egal
+    if (!colon) return false;
+    return strcmp(colon + 1, panel_pass) == 0;
+}
+
+// ESP_OK = durchgelassen; sonst wurde bereits eine 401-Antwort gesendet.
+static esp_err_t require_auth(httpd_req_t *req) {
+    if (auth_ok(req)) return ESP_OK;
+    httpd_resp_set_status(req, "401 Unauthorized");
+    httpd_resp_set_hdr(req, "WWW-Authenticate", "Basic realm=\"SBB-Monitor\"");
+    httpd_resp_sendstr(req, "Login erforderlich");
+    return ESP_FAIL;
+}
 
 // ===== Hilfsfunktion: Datei aus SPIFFS streamen =====
 static esp_err_t send_file(httpd_req_t *req, const char *path, const char *mime) {
@@ -20,6 +69,8 @@ static esp_err_t send_file(httpd_req_t *req, const char *path, const char *mime)
         return ESP_FAIL;
     }
     httpd_resp_set_type(req, mime);
+    // Sonst zeigt der Browser nach einem Firmware-Update u.U. die alte Panel-Version
+    httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
     char buf[512];
     size_t n;
     while ((n = fread(buf, 1, sizeof(buf), f)) > 0)
@@ -47,11 +98,13 @@ static void hex_to_rgb(const char *hex, uint8_t rgb[3]) {
 
 // ===== GET / → index.html =====
 static esp_err_t handler_root(httpd_req_t *req) {
+    if (require_auth(req) != ESP_OK) return ESP_OK;
     return send_file(req, "/spiffs/index.html", "text/html");
 }
 
 // ===== GET /api/config → vollständiges JSON =====
 static esp_err_t handler_config_get(httpd_req_t *req) {
+    if (require_auth(req) != ESP_OK) return ESP_OK;
     blink_config_t cfg;
     nvs_config_load(&cfg);
 
@@ -74,10 +127,11 @@ static esp_err_t handler_config_get(httpd_req_t *req) {
     cJSON_AddNumberToObject(j, "buttonLongActiveMin", cfg.buttonLongActiveMin);
     cJSON_AddNumberToObject(j, "buttonGpio",          cfg.buttonGpio);
 
-    // Netzwerk (Passwort NICHT senden)
+    // Netzwerk (Passwörter NICHT senden, nur ob Panel-Login aktiv ist)
     cJSON_AddStringToObject(j, "ssid",       cfg.ssid);
     cJSON_AddNumberToObject(j, "ntpTimeoutS",cfg.ntpTimeoutS);
     cJSON_AddStringToObject(j, "station",    cfg.station);
+    cJSON_AddBoolToObject(j,   "panelAuthEnabled", cfg.panelPass[0] != 0);
 
     // Ziel-Filter
     cJSON *filters = cJSON_AddArrayToObject(j, "destFilters");
@@ -149,6 +203,7 @@ static esp_err_t handler_config_get(httpd_req_t *req) {
 
 // ===== POST /api/config =====
 static esp_err_t handler_config_post(httpd_req_t *req) {
+    if (require_auth(req) != ESP_OK) return ESP_OK;
     // static: 4 KB passen schlecht in den 8-KB-httpd-Stack; der Server
     // verarbeitet Requests sequentiell, daher kein Race.
     static char buf[4096];
@@ -204,6 +259,14 @@ static esp_err_t handler_config_post(httpd_req_t *req) {
 
     // Netzwerk
     GS("ssid",        ssid)
+    // Geleerte SSID = explizit zurück auf secrets.h. Dann auch das gespeicherte
+    // Passwort verwerfen — sonst entsteht die Kombination "SSID aus secrets.h
+    // + altes NVS-Passwort" und der Connect schlägt fehl.
+    {
+        cJSON *v = cJSON_GetObjectItem(j, "ssid");
+        if (cJSON_IsString(v) && v->valuestring && !v->valuestring[0])
+            cfg.password[0] = '\0';
+    }
     // Passwort: nur überschreiben wenn nicht leer.
     // GET sendet das Passwort aus Sicherheitsgründen nicht zurück, deshalb
     // ist das Feld im UI nach dem Laden leer. Würden wir den leeren String
@@ -217,6 +280,17 @@ static esp_err_t handler_config_post(httpd_req_t *req) {
     }
     GI("ntpTimeoutS", ntpTimeoutS)
     GS("station",     station)
+    // Panel-Login: leeres Feld = unverändert (wie WLAN-Passwort);
+    // explizites Deaktivieren über panelPassClear:true.
+    {
+        cJSON *v = cJSON_GetObjectItem(j, "panelPass");
+        if (cJSON_IsString(v) && v->valuestring && v->valuestring[0]) {
+            strncpy(cfg.panelPass, v->valuestring, sizeof(cfg.panelPass) - 1);
+            cfg.panelPass[sizeof(cfg.panelPass) - 1] = '\0';
+        }
+        if (cJSON_IsTrue(cJSON_GetObjectItem(j, "panelPassClear")))
+            cfg.panelPass[0] = '\0';
+    }
 
     // Ziel-Filter
     cJSON *filters = cJSON_GetObjectItem(j, "destFilters");
@@ -290,6 +364,8 @@ static esp_err_t handler_config_post(httpd_req_t *req) {
     if (err == ESP_OK) {
         extern volatile bool g_cfg_dirty;
         g_cfg_dirty = true;
+        strncpy(panel_pass, cfg.panelPass, sizeof(panel_pass) - 1);
+        panel_pass[sizeof(panel_pass) - 1] = '\0';
     }
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_type(req, "application/json");
@@ -301,8 +377,52 @@ static esp_err_t handler_config_post(httpd_req_t *req) {
     return err;
 }
 
+// ===== GET /api/departures — letzte geholte Abfahrten (Cache aus main.c) =====
+static esp_err_t handler_departures_get(httpd_req_t *req) {
+    if (require_auth(req) != ESP_OK) return ESP_OK;
+    time_t now; time(&now);
+
+    cJSON *j = cJSON_CreateObject();
+    // ageS = Sekunden seit der letzten erfolgreichen Abfrage, -1 = noch keine
+    cJSON_AddNumberToObject(j, "ageS",
+        g_last_deps_time ? (double)(now - g_last_deps_time) : -1);
+    cJSON *arr = cJSON_AddArrayToObject(j, "departures");
+    for (int i = 0; i < 4; i++) {
+        if (!g_last_deps[i].valid) continue;
+        cJSON *d = cJSON_CreateObject();
+        cJSON_AddStringToObject(d, "time",        g_last_deps[i].time);
+        cJSON_AddStringToObject(d, "destination", g_last_deps[i].destination);
+        cJSON_AddStringToObject(d, "platform",    g_last_deps[i].platform);
+        cJSON_AddNumberToObject(d, "delay",       g_last_deps[i].delay);
+        cJSON_AddBoolToObject(d,   "cancelled",   g_last_deps[i].cancelled);
+        cJSON_AddItemToArray(arr, d);
+    }
+    char *body = cJSON_PrintUnformatted(j);
+    cJSON_Delete(j);
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_sendstr(req, body);
+    free(body);
+    return ESP_OK;
+}
+
+// ===== POST /api/restart =====
+static esp_err_t handler_restart(httpd_req_t *req) {
+    if (require_auth(req) != ESP_OK) return ESP_OK;
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_sendstr(req, "{\"ok\":true}");
+    ESP_LOGI(TAG, "Neustart per Web-Panel");
+    // Response noch ausliefern lassen (gleiches Muster wie AP-Mode-Restart)
+    vTaskDelay(pdMS_TO_TICKS(500));
+    esp_restart();
+    return ESP_OK;
+}
+
 // ===== GET /api/status =====
 static esp_err_t handler_status_get(httpd_req_t *req) {
+    if (require_auth(req) != ESP_OK) return ESP_OK;
     // Echte Werte: wifi = im STA-Modus verbunden (kein AP-Fallback),
     // ntp = gueltige Systemzeit vorhanden (tm_year >= 100 == ab Jahr 2000).
     bool wifi = !sbb_wifi_is_ap_mode();
@@ -334,6 +454,8 @@ esp_err_t http_server_start(void) {
         return ret;
     }
 
+    panel_pass_load();
+
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.max_uri_handlers = 8;
     cfg.stack_size = 8192;
@@ -344,12 +466,14 @@ esp_err_t http_server_start(void) {
     }
 
     httpd_uri_t uris[] = {
-        { .uri = "/",           .method = HTTP_GET,  .handler = handler_root },
-        { .uri = "/api/config", .method = HTTP_GET,  .handler = handler_config_get },
-        { .uri = "/api/config", .method = HTTP_POST, .handler = handler_config_post },
-        { .uri = "/api/status", .method = HTTP_GET,  .handler = handler_status_get },
+        { .uri = "/",               .method = HTTP_GET,  .handler = handler_root },
+        { .uri = "/api/config",     .method = HTTP_GET,  .handler = handler_config_get },
+        { .uri = "/api/config",     .method = HTTP_POST, .handler = handler_config_post },
+        { .uri = "/api/status",     .method = HTTP_GET,  .handler = handler_status_get },
+        { .uri = "/api/departures", .method = HTTP_GET,  .handler = handler_departures_get },
+        { .uri = "/api/restart",    .method = HTTP_POST, .handler = handler_restart },
     };
-    for (int i = 0; i < 4; i++)
+    for (int i = 0; i < (int)(sizeof(uris) / sizeof(uris[0])); i++)
         httpd_register_uri_handler(server, &uris[i]);
 
     ESP_LOGI(TAG, "HTTP server gestartet — http://sbb-monitor.local");
