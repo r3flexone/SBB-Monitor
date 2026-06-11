@@ -29,6 +29,7 @@ typedef struct {
     char password[64];
     int  ntpTimeoutS;
     char station[64];
+    char panelPass[32];              // Web-Panel-Login (leer = kein Login, Default)
 
     // --- Ziel-Filter (Substring, case-insensitive) ---
     char destFilters[4][32];

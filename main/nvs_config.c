@@ -11,7 +11,7 @@ static const char *TAG = "nvs_config";
 void nvs_config_defaults(blink_config_t *cfg) {
     memset(cfg, 0, sizeof(*cfg));
 
-    // Zeitfenster: 1 Fenster 06:45–06:55
+    // Zeitfenster: 1 Fenster 06:45–07:00
     cfg->timeWindowCount    = 1;
     cfg->timeWindows[0]     = (time_window_t){6, 45, 7, 0};
 
@@ -113,7 +113,7 @@ esp_err_t nvs_config_load(blink_config_t *cfg) {
     }
 
     // Button
-    LI("btnActiveMin",    buttonActiveMin)
+    LI("btnActiveMin",  buttonActiveMin)
     LI("btnLongMs",     buttonLongPressMs)
     LI("btnLongMin",    buttonLongActiveMin)
     LI("btnGpio",       buttonGpio)
@@ -123,6 +123,7 @@ esp_err_t nvs_config_load(blink_config_t *cfg) {
     LS("password",      password)
     LI("ntpTimeoutS",   ntpTimeoutS)
     LS("station",       station)
+    LS("panelPass",     panelPass)
 
     // Ziel-Filter
     LI("filtCount",     destFilterCount)
@@ -213,7 +214,7 @@ esp_err_t nvs_config_save(const blink_config_t *cfg) {
     }
 
     // Button
-    SI("btnActiveMin",    buttonActiveMin)
+    SI("btnActiveMin",  buttonActiveMin)
     SI("btnLongMs",     buttonLongPressMs)
     SI("btnLongMin",    buttonLongActiveMin)
     SI("btnGpio",       buttonGpio)
@@ -223,6 +224,7 @@ esp_err_t nvs_config_save(const blink_config_t *cfg) {
     SS("password",      password)
     SI("ntpTimeoutS",   ntpTimeoutS)
     SS("station",       station)
+    SS("panelPass",     panelPass)
 
     // Ziel-Filter
     SI("filtCount",     destFilterCount)

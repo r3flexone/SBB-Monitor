@@ -40,7 +40,7 @@ All application code lives in `main/`. Source files:
 - **`main/main.c`** — hardware drivers and the active-window main loop.
 - **`main/sbb.c` / `sbb.h`** — WiFi, HTTP, JSON parsing, filter logic. Public API: `sbb_wifi_init()` and `sbb_get_departures()`.
 - **`main/nvs_config.c` / `nvs_config.h`** — all configuration in NVS. `blink_config_t` is the central struct. Defaults in `nvs_config_defaults()`.
-- **`main/http_server.c` / `http_server.h`** — web panel (SPIFFS + `/api/config` GET/POST + `/api/status` GET). Sets `g_cfg_dirty = true` after successful save so the main loop reloads cfg.
+- **`main/http_server.c` / `http_server.h`** — web panel (SPIFFS + `/api/config` GET/POST + `/api/status` GET + `/api/departures` GET + `/api/restart` POST). Sets `g_cfg_dirty = true` after successful save so the main loop reloads cfg. Optional HTTP Basic Auth via `panelPass` (empty = no auth, the default). `/api/departures` serves `g_last_deps[]`, written by the main loop.
 - **`main/spiffs/index.html`** — web panel UI, flashed to SPIFFS.
 - **`main/cJSON.c` / `cJSON.h`** — vendored JSON library, do not modify.
 

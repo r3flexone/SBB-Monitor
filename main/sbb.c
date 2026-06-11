@@ -55,6 +55,8 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
     if (base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
     } else if (base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        // Sonst meldet sbb_wifi_reconnect() weiter "verbunden" und tut nichts
+        wifi_ready = false;
         if (retry_count < MAX_RETRY) {
             esp_wifi_connect();
             retry_count++;
@@ -205,14 +207,22 @@ bool sbb_get_departures(const char *station, SbbDeparture results[DEP_COUNT],
     http_buf_len = 0;
     http_buf[0] = 0;
 
-    // Station URL-encodieren (Leerzeichen → %20)
-    char station_enc[64];
+    // Station vollständig URL-encodieren: nur unreserved (A-Z a-z 0-9 - _ . ~)
+    // bleiben unverändert, alles andere wird zu %XX (inkl. UTF-8 für Umlaute).
+    // 64-Zeichen-Station → max. 3 Bytes pro Zeichen, daher Puffer großzügig.
+    static const char hexd[] = "0123456789ABCDEF";
+    char station_enc[200];
     int si = 0;
-    for (int i = 0; station[i] && si < (int)sizeof(station_enc) - 3; i++) {
-        if (station[i] == ' ') {
-            station_enc[si++] = '%'; station_enc[si++] = '2'; station_enc[si++] = '0';
+    for (int i = 0; station[i] && si < (int)sizeof(station_enc) - 4; i++) {
+        unsigned char ch = (unsigned char)station[i];
+        if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') ||
+            (ch >= '0' && ch <= '9') ||
+            ch == '-' || ch == '_' || ch == '.' || ch == '~') {
+            station_enc[si++] = (char)ch;
         } else {
-            station_enc[si++] = station[i];
+            station_enc[si++] = '%';
+            station_enc[si++] = hexd[ch >> 4];
+            station_enc[si++] = hexd[ch & 0x0F];
         }
     }
     station_enc[si] = 0;
@@ -243,11 +253,6 @@ bool sbb_get_departures(const char *station, SbbDeparture results[DEP_COUNT],
     esp_http_client_handle_t client = esp_http_client_init(&config);
     if (!client) { ESP_LOGE(TAG, "HTTP init fehlgeschlagen"); return false; }
     esp_err_t err = esp_http_client_perform(client);
-
-    if (http_buf_len == 0) {
-        int read = esp_http_client_read(client, http_buf, HTTP_BUF_SIZE - 1);
-        if (read > 0) { http_buf_len = read; http_buf[read] = 0; }
-    }
 
     esp_http_client_cleanup(client);
     ESP_LOGI(TAG, "HTTP Response (%d bytes)", http_buf_len);
@@ -353,9 +358,14 @@ bool sbb_get_departures(const char *station, SbbDeparture results[DEP_COUNT],
     if (filter_count > 0) ESP_LOGI(TAG, "Filter: %d/%d Züge passen", n, total_trains);
     if (n == 0) return false;
 
+    // Wrap-fähiger Vergleich: ein Zug gilt als zukünftig, wenn er innerhalb
+    // der nächsten 12 h liegt (modulo Tag). Sonst würde um 23:50 ein
+    // 00:05-Zug als "vergangen" verworfen.
     int target_idx = -1;
     for (int i = 0; i < n; i++) {
-        if (entries[i].minutes >= target_min) { target_idx = i; break; }
+        if (entries[i].minutes < 0) continue;
+        int fwd = (entries[i].minutes - target_min + 24 * 60) % (24 * 60);
+        if (fwd <= 12 * 60) { target_idx = i; break; }
     }
     if (target_idx < 0) {
         ESP_LOGW(TAG, "Alle %d Züge in der Vergangenheit (cur=%02d:%02d)",
